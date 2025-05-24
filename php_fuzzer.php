@@ -4,11 +4,9 @@
  * To Install: `composer require nikic/php-parser:^2`
  * 
  * Random PHP code generator (PHP‑Parser 2.x / PHP 5.6).
- *   • Pure v2 API — no shim classes.
  *   • `--no-builtin`   → disables random built‑in calls.
  *   • `--wrap-builtin`   → wrap builtin calls as wrapper($fn, [$arg1, ...])
  *   • `--easy`           → shorter code
- *   • Loop and branch bodies now always contain **assignment statements** (not just bare expressions).
  */
 
 require __DIR__ . '/vendor/autoload.php';
