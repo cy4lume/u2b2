@@ -6,6 +6,7 @@
  *  Random PHP code generator — PHP‑Parser 2.x / PHP 5.6
  *
  * Flags
+ *   --easy             Shorter code
  *   --no-builtin       Disable builtin calls entirely
  *   --wrap-builtin     Emit wrapper($fn, [$args]) around builtin call
  *   --typed-builtin    Use only functions present in $TYPE_HINT *and* generate
