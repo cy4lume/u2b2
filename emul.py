@@ -1,9 +1,26 @@
-from unicorn import UC_HOOK_INTR, Uc, UC_ARCH_MIPS, UC_MODE_MIPS32, UC_MODE_BIG_ENDIAN, UC_PROT_READ, UC_PROT_WRITE, UC_PROT_EXEC, UC_HOOK_CODE
-from unicorn.mips_const import UC_MIPS_REG_SP, UC_MIPS_REG_PC
-from elftools.elf.elffile import ELFFile
-from capstone import CS_OP_IMM, CS_OP_MEM, CS_OP_REG, Cs, CS_ARCH_MIPS, CS_MODE_MIPS32, CS_MODE_BIG_ENDIAN, CsInsn
+from capstone import (
+    CS_OP_IMM,
+    CS_OP_MEM,
+    CS_OP_REG,
+    CS_ARCH_MIPS,
+    CS_MODE_MIPS32,
+    CS_MODE_BIG_ENDIAN,
+    Cs,
+    CsInsn
+)
 import capstone.mips_const as mips
-
+from elftools.elf.elffile import ELFFile
+from unicorn import (
+    Uc,
+    UC_ARCH_MIPS,
+    UC_MODE_MIPS32,
+    UC_MODE_BIG_ENDIAN,
+    UC_PROT_READ,
+    UC_PROT_WRITE,
+    UC_PROT_EXEC,
+    UC_HOOK_CODE
+)
+from unicorn.mips_const import UC_MIPS_REG_SP, UC_MIPS_REG_PC
 import z3
 
 
@@ -18,16 +35,16 @@ def align_up(addr, align=PAGE_SIZE):
     return (addr + align - 1) & ~(align - 1)
 
 
-def map_elf(uc, path):
-    with open(path, 'rb') as f:
+def map_elf(uc: Uc, path: str):
+    with open(path, "rb") as f:
         elf = ELFFile(f)
         for seg in elf.iter_segments():
-            if seg['p_type'] != 'PT_LOAD':
+            if seg["p_type"] != "PT_LOAD":
                 continue
 
-            vaddr = seg['p_vaddr']
-            memsz = seg['p_memsz']
-            filesz = seg['p_filesz']
+            vaddr = seg["p_vaddr"]
+            memsz = seg["p_memsz"]
+            filesz = seg["p_filesz"]
             data = seg.data()
 
             # 페이지 경계로 맞춰 매핑
@@ -42,9 +59,9 @@ def map_elf(uc, path):
             offset_in_page = vaddr - base
             uc.mem_write(vaddr, data)
             if memsz > filesz:
-                uc.mem_write(vaddr + filesz, b'\x00' * (memsz - filesz))
+                uc.mem_write(vaddr + filesz, b"\x00" * (memsz - filesz))
 
-    return elf.header['e_entry']
+    return elf.header["e_entry"]
 
 
 uc = Uc(UC_ARCH_MIPS, UC_MODE_MIPS32 | UC_MODE_BIG_ENDIAN)
@@ -78,11 +95,11 @@ def classify(insn: CsInsn):
     # J-type (jump / jal)
     if insn.id in (mips.MIPS_INS_J, mips.MIPS_INS_JAL):
         return "J"
-    # I-type (즉시값 있는 경우)
+    # I-type (imm)
     for operand in insn.operands:
         if operand.type == CS_OP_IMM:
             return "I"
-    # R-type (그 외)
+    # R-type (else)
     return "R"
 
 
@@ -221,7 +238,7 @@ def handle_Rtype(insn: CsInsn):
                 raise ValueError("not supported")
 
         case mips.MIPS_INS_SYSCALL:
-            print("lolzz")
+            raise ValueError("not yet supported")
 
 
 def handle_Itype(insn: CsInsn):
