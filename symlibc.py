@@ -1,7 +1,15 @@
 from z3 import *
 import capstone.mips_const as mips
+import register
 
 HEAP_BASE = 0x10000000
+
+# some helper functions
+def range_unroll(n, max_unroll=256):
+    if isinstance(n, BitVecNumRef):
+        return list(range(n.as_long()))
+    else:
+        return list(range(max_unroll))
 
 # mem allocations
 def malloc(size: BitVec)->BitVec:
@@ -16,32 +24,59 @@ def realloc():
     pass
 
 # mem free
-def free(r):
-    ptr = 
-    pass
+def free(regs: Registers, mem: Memory):
+    ptr = regs[mips.MIPS_REG_A0]
+    mem.pop(simplify(ptr).as_long(), None)
+    return regs, mem
 
 # misc mem instr
-def memcpy():
-    # TODO
-    pass
+def memcpy(regs: Registers, mem: Memory):
+    dst = regs[mips.MIPS_REG_A0]
+    src = regs[mips.MIPS_REG_A1]
+    n = regs[mips.MIPS_REG_A2]
 
-def memset():
-    # TODO
-    pass
+    new_mem = mem
+    for i in range_unroll(n):
+        byte = Select(mem, src + i)
+        new_mem = Store(new_mem, dst + i, byte)
+    
+    new_regs = regs.copy()
+    new_regs[mips.MIPS_REG_V0] = dst
+
+    return new_regs, new_mem
+
+def memset(regs: Registers, mem: Memory):
+    s = regs[mips.MIPS_REG_A0]
+    c = regs[mips.MIPS_REG_A1]
+    n = regs[mips.MIPS_REG_A2]
+
+    new_mem = mem
+    for i in range_unroll(n):
+        new_mem = Store(new_mem, s + i, c)
+    
+    new_regs = regs.copy()
+    new_regs[mips.MIPS_REG_V0] = s1
+
+    return new_regs, new_mem
 
 def memmove():
     pass
 
 # str operations
-def strlen():
-    # TODO
-    pass
+def strlen(regs: Registers, mem: Memory):
+    s = regs[mips.MIPS_REG_A0]
+    
+    new_regs = regs.copy()
+    new_regs[mips.MIPS_REG_V0] = 
+    # 언롤링하고 대충잘하면됨ㅋㅋ
+    
+    return new_regs, mem
 
 def strnlen():
     # TODO
     pass
 
-def strcmp():
+def strcmp(regs: Registers, mem: Memory):
     # TODO
     pass
 
@@ -84,7 +119,7 @@ def close():
     # TODO
     pass
 
-def read():
+def read(regs: Registers, mem: Memory):
     # TODO
     pass
 
