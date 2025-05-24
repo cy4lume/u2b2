@@ -1,2 +1,2 @@
 # u2b2
-CS453 project: language fuzzer for finding undefined behaviors
+CS453 project: Unreachable Bytecode BUster for MIPS32
