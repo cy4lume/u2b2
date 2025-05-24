@@ -17,3 +17,18 @@ class Registers:
             self._regs[idx] = 0
             return
         self._regs[idx] = value
+
+
+AddrSort = z3.BitVecSort(32)
+ValueSort = z3.BitVecSort(32)
+
+
+class Memory:
+    def __init__(self):
+        self._mem = z3.Array("MEMORY", AddrSort, ValueSort)
+
+    def load(self, addr):
+        return z3.Select(self._mem, addr)
+
+    def store(self, addr, value):
+        self._mem = z3.Store(self._mem, addr, value)

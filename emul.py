@@ -24,7 +24,7 @@ from unicorn import (
 from unicorn.mips_const import UC_MIPS_REG_SP, UC_MIPS_REG_PC
 import z3
 
-from register import Registers
+from state import Memory, Registers
 
 
 PAGE_SIZE = 0x1000
@@ -38,19 +38,11 @@ def align_up(addr, align=PAGE_SIZE):
     return (addr + align - 1) & ~(align - 1)
 
 
-Addr = z3.BitVecSort(32)
-Value = z3.BitVecSort(32)
 
-MEMORY = z3.Array("MEMORY", Addr, Value)
+
+MEMORY = Memory()
 REGS = Registers()
 
-
-def load(addr):
-    return z3.Select(MEMORY, addr)
-
-
-def store(addr, value):
-    MEMORY = z3.Store(MEMORY, addr, value)
 
 
 def classify(insn: CsInsn):
@@ -174,12 +166,12 @@ def handle_Rtype(insn: CsInsn):
         case mips.MIPS_INS_LW:
             rd = operands[0]
             pc, rs = operands[1]
-            REGS[rd] = load(REGS[rs] + pc)
+            REGS[rd] = MEMORY.load(REGS[rs] + pc)
 
         case mips.MIPS_INS_SW:
             rd = operands[0]
             pc, rs = operands[1]
-            store(REGS[rs] + pc, REGS[rd])
+            MEMORY.store(REGS[rs] + pc, REGS[rd])
 
         case mips.MIPS_INS_MFHI:
             rd = operands[0]
