@@ -4,6 +4,8 @@ from elftools.elf.elffile import ELFFile
 from capstone import CS_OP_IMM, CS_OP_MEM, CS_OP_REG, Cs, CS_ARCH_MIPS, CS_MODE_MIPS32, CS_MODE_BIG_ENDIAN, CsInsn
 import capstone.mips_const as mips
 
+import z3
+
 
 PAGE_SIZE = 0x1000
 
@@ -49,7 +51,7 @@ def map_elf(uc, path):
 uc = Uc(UC_ARCH_MIPS, UC_MODE_MIPS32 | UC_MODE_BIG_ENDIAN)
 
 # ELF 매핑 및 엔트리 얻기
-entry = map_elf(uc, "test")
+entry = map_elf(uc, "exploit.elf")
 
 # 스택 영역 매핑 (1페이지)
 STACK_TOP = 0x7fff0000
@@ -60,8 +62,20 @@ uc.reg_write(UC_MIPS_REG_SP, STACK_TOP)
 
 uc.reg_write(UC_MIPS_REG_PC, entry)
 
-md = Cs(CS_ARCH_MIPS, CS_MODE_MIPS32 | CS_MODE_BIG_ENDIAN)
-md.detail = True
+Addr = z3.BitVecSort(32)
+Value = z3.BitVecSort(32)
+
+MEMORY = z3.Array("MEMORY", Addr, Value)
+REGS = [z3.BitVec(f"REG{i}", 32) for i in range(256)]
+
+
+def load(addr):
+    return z3.Select(MEMORY, addr)
+
+
+def store(addr, value):
+    MEMORY = z3.Store(MEMORY, addr, value)
+
 
 def classify(insn: CsInsn):
     # J-type (jump / jal)
@@ -74,76 +88,216 @@ def classify(insn: CsInsn):
     # R-type (그 외)
     return "R"
 
+
+conditions = []
+terms = []
+
+
+def bool_proxy(term):
+    if isinstance(term, bool):
+        return term
+    global terms, conditions
+    s = z3.Solver()
+    s.add(z3.And(*(conditions + [term])))
+    true_cond = True if s.check() == z3.sat else False
+
+    s = z3.Solver()
+    s.add(z3.And(*(conditions + [z3.simplify(z3.Not(term))])))
+    false_cond = True if s.check() == z3.sat else False
+
+    if true_cond and not false_cond:
+        return True
+    if false_cond and not true_cond:
+        return False
+
+    if len(terms) > len(conditions):
+        branch = terms[len(conditions)]
+        conditions.append(
+            term if branch else z3.simplify(z3.Not(term)))
+        return branch
+
+    if len(terms) >= 10:
+        raise DepthException()
+
+    terms.append(True)
+    conditions.append(term)
+    return True
+
+
+class DepthException(Exception):
+    pass
+
+
 def handle_Rtype(insn: CsInsn):
+    operands = list(parse_operand(insn))
     match insn.id:
         case mips.MIPS_INS_ADD:
-            pass
+            rd, rs, rt = operands
+            REGS[rd] = REGS[rs] + REGS[rt]
+            # TODO: overflow
+
         case mips.MIPS_INS_SUB:
-            pass
+            rd, rs, rt = operands
+            REGS[rd] = REGS[rs] - REGS[rt]
+
         case mips.MIPS_INS_ADDU:
-            pass
+            rd, rs, rt = operands
+            REGS[rd] = REGS[rs] + REGS[rt]
+
         case mips.MIPS_INS_SUBU:
-            pass
+            rd, rs, rt = operands
+            REGS[rd] = REGS[rs] - REGS[rt]
+
         case mips.MIPS_INS_MUL:
-            pass
+            rs, rt = operands
+
+            rs = z3.SignExt(32, REGS[rs])
+            rt = z3.SignExt(32, REGS[rt])
+            prod = rs * rt
+
+            lo = z3.Extract(31,  0, prod)
+            hi = z3.Extract(63, 32, prod)
+
+            REGS[mips.MIPS_REG_LO] = lo
+            REGS[mips.MIPS_REG_HI] = hi
+
         case mips.MIPS_INS_MULT:
-            pass
+            rd, rs, rt = operands
+            REGS[rd] = REGS[rs] * REGS[rt]
+
         case mips.MIPS_INS_DIV:
-            pass
+            rs, rt = operands
+
+            lo = REGS[rs] / REGS[rt]
+            hi = REGS[rs] % REGS[rt]
+
+            REGS[mips.MIPS_REG_LO] = lo
+            REGS[mips.MIPS_REG_HI] = hi
+
         case mips.MIPS_INS_AND:
-            pass
+            rd, rs, rt = operands
+            REGS[rd] = REGS[rs] & REGS[rt]
+
         case mips.MIPS_INS_OR:
-            pass
+            rd, rs, rt = operands
+            REGS[rd] = REGS[rs] | REGS[rt]
+
         case mips.MIPS_INS_SLL:
-            pass
+            rd, rs, shamt = operands
+            REGS[rd] = REGS[rs] << shamt
+
         case mips.MIPS_INS_SRL:
-            pass
+            rd, rs, shamt = operands
+            REGS[rd] = z3.LShR(REGS[rs], shamt)
+
         case mips.MIPS_INS_LW:
-            pass
+            rd = operands[0]
+            pc, rs = operands[1]
+            REGS[rd] = load(REGS[rs] + pc)
+
         case mips.MIPS_INS_SW:
-            pass
+            rd = operands[0]
+            pc, rs = operands[1]
+            store(REGS[rs] + pc, REGS[rd])
+
+        case mips.MIPS_INS_MFHI:
+            rd = operands[0]
+            REGS[rd] = REGS[mips.MIPS_REG_HI]
+
         case mips.MIPS_INS_MFLO:
-            pass
-        case mips.MIPS_INS_BEQ:
-            pass
-        case mips.MIPS_INS_BNE:
-            pass
+            rd = operands[0]
+            REGS[rd] = REGS[mips.MIPS_REG_LO]
+
         case mips.MIPS_INS_SLT:
-            pass
+            rd, rs, rt = operands
+            if bool_proxy(REGS[rs] < REGS[rt]):
+                REGS[rd] = 1
+            else:
+                REGS[rd] = 0
+
         case mips.MIPS_INS_JR:
-            pass
+            rs = operands[0]
+            pc = REGS[rs]
+            if isinstance(pc, int):
+                jump_to(pc)
+            else:
+                raise ValueError("not supported")
+
         case mips.MIPS_INS_SYSCALL:
-            pass
+            print("lolzz")
+
 
 def handle_Itype(insn: CsInsn):
+    operands = list(parse_operand(insn))
     match insn.id:
+        case mips.MIPS_INS_BEQ:
+            rs, rt, pc = operands
+            if bool_proxy(REGS[rs] == REGS[rt]):
+                jump_to(pc)
+            else:
+                jump_to(insn.address + 4)
+        case mips.MIPS_INS_BNE:
+            rs, rt, pc = operands
+            if bool_proxy(REGS[rs] != REGS[rt]):
+                jump_to(pc)
+            else:
+                jump_to(insn.address + 4)
+
         case mips.MIPS_INS_ADDI:
-            pass
+            rd, rs, imm = operands
+            REGS[rd] = REGS[rs] + imm
+            # TODO: overflow
+
         case mips.MIPS_INS_ADDIU:
-            pass
+            rd, rs, imm = operands
+            REGS[rd] = REGS[rs] + imm
+
         case mips.MIPS_INS_ANDI:
-            pass
+            rd, rs, imm = operands
+            REGS[rd] = REGS[rs] & imm
+
         case mips.MIPS_INS_ORI:
-            pass
+            rd, rs, imm = operands
+            REGS[rd] = REGS[rs] | imm
+
         case mips.MIPS_INS_LUI:
-            pass
-        case mips.MIPS_INS_MFHI:
-            pass
+            rs, imm = operands
+            REGS[rs] = imm << 16
+
         case mips.MIPS_INS_SLTI:
-            pass
-        
+            rd, rs, imm = operands
+            if bool_proxy(REGS[rs] < imm):
+                REGS[rd] = 1
+            else:
+                REGS[rd] = 0
+
+
 def handle_Jtype(insn: CsInsn):
+    operands = list(parse_operand(insn))
     match insn.id:
         case mips.MIPS_INS_J:
-            pass
+            pc = operands[0]
+            jump_to(pc)
+
         case mips.MIPS_INS_JAL:
-            pass
+            pc = insn.address
+            REGS[mips.MIPS_REG_RA] = pc + 4
+
+            pc = operands[0]
+            jump_to(pc)
+
+
+def jump_to(address: int):
+    uc.reg_write(UC_MIPS_REG_PC, address)
+
+
+md = Cs(CS_ARCH_MIPS, CS_MODE_MIPS32 | CS_MODE_BIG_ENDIAN)
+md.detail = True
+
 
 def hook_instr(uc: Uc, address: int, size: int, user_data):
-    # print(type(uc), type(address), type(size), type(user_data))
     insn_bytes = uc.mem_read(address, size)
     for insn in md.disasm(insn_bytes, address):
-        parse_operand(insn)
         match classify(insn):
             case "R":
                 handle_Rtype(insn)
@@ -152,34 +306,48 @@ def hook_instr(uc: Uc, address: int, size: int, user_data):
             case "R":
                 handle_Rtype(insn)
 
-     
-        # print()
 
 def parse_operand(insn: CsInsn):
     for op in insn.operands:
         if op.type == CS_OP_REG:
-            print("   - reg     :", md.reg_name(op.reg))
+            yield (op.reg)
         elif op.type == CS_OP_IMM:
-            print("   - imm     :", hex(op.imm))
+            yield (op.imm)
         elif op.type == CS_OP_MEM:
-            # mem.base, mem.index, mem.disp
             mem = op.mem
-            base = md.reg_name(mem.base)
-            disp = mem.disp
-            print("   - mem     :", f"offset={hex(disp)}  base={base}")
+            yield (mem.disp, mem.base)
         else:
-            raise ValueError("noo")
-        
+            raise ValueError("what?!")
+
+
 uc.hook_add(UC_HOOK_CODE, hook_instr)
 
-# def hook_intr(uc, intno, user_data):
-#     print(f"Interrupt! intno = {intno}")
 
-# uc.hook_add(UC_HOOK_INTR, hook_intr)
+def run():
+    global terms, conditions
+    terms = []
+    models = []
+    while True:
+        conditions = []
+        try:
+            uc.emu_start(entry, 0)
+        except Exception as e:
+            print("Emu stopped:", e)
 
-try:
-    uc.emu_start(entry, 0)
-except Exception as e:
-    print("Emu stopped:", e)
+        s = z3.Solver()
+        s.add(z3.And(*conditions))
+        s.check()
+        models.append(s.model())
 
-# print("Covered instructions:", sorted(covered))
+        while len(terms) > 0 and not terms[-1]:
+            terms.pop()
+        if len(terms) == 0:
+            break
+        terms[-1] = False
+
+    return models
+
+
+models = run()
+for model in models:
+    print(model)
