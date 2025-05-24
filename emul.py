@@ -47,13 +47,10 @@ def map_elf(uc, path):
     return elf.header['e_entry']
 
 
-# Unicorn 초기화
 uc = Uc(UC_ARCH_MIPS, UC_MODE_MIPS32 | UC_MODE_BIG_ENDIAN)
 
-# ELF 매핑 및 엔트리 얻기
-entry = map_elf(uc, "exploit.elf")
+entry = map_elf(uc, "./tests/exploit.elf")
 
-# 스택 영역 매핑 (1페이지)
 STACK_TOP = 0x7fff0000
 STACK_SIZE = PAGE_SIZE
 uc.mem_map(align_down(STACK_TOP - STACK_SIZE),
