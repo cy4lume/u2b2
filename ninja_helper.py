@@ -1,14 +1,7 @@
 from binaryninja import *
 from binaryninjaui import UIContext
 
-def get_got():
-    ctx = UIContext.activeContext()
-    if ctx is None:
-        return None
-    view = ctx.getCurrentView()
-    if view is None:
-        return None
-    bv = view.getData()
+def get_got(bv):
     load_functions = {}
     got_section = bv.get_section_by_name(".got")
     if got_section:
