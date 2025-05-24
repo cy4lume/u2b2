@@ -3,10 +3,13 @@
 /**
  * To Install: `composer require nikic/php-parser:^2`
  * 
- * Random PHP code generator (PHP‑Parser 2.x / PHP 5.6).
- *   • `--no-builtin`   → disables random built‑in calls.
- *   • `--wrap-builtin`   → wrap builtin calls as wrapper($fn, [$arg1, ...])
- *   • `--easy`           → shorter code
+ *  Random PHP code generator — PHP‑Parser 2.x / PHP 5.6
+ *
+ * Flags
+ *   --no-builtin       Disable builtin calls entirely
+ *   --wrap-builtin     Emit wrapper($fn, [$args]) around builtin call
+ *   --typed-builtin    Use only functions present in $TYPE_HINT *and* generate
+ *                      arguments that match their simple type signature.
  */
 
 require __DIR__ . '/vendor/autoload.php';
@@ -17,83 +20,176 @@ use PhpParser\Node;
 use PhpParser\Node\Stmt;
 use PhpParser\Node\Expr;
 
-function ri($a,$b){return function_exists('random_int')?random_int($a,$b):mt_rand($a,$b);} // RNG
-function opts(){return getopt('n::',['print','easy','seed::','out::','no-builtin','wrap-builtin']);}
-function expr_stmt(Node $n){return $n;} // v2 accepts raw Node stmt
+// ───────────────────────────── helpers
+function ri($a, $b) { return function_exists('random_int') ? random_int($a, $b) : mt_rand($a, $b); }
+function rand_str($n = 5) { $s = ''; for ($i = 0; $i < $n; $i++) $s .= chr(ri(97, 122)); return $s; }
+function opts() { return getopt('n::', ['print', 'easy', 'seed::', 'out::', 'no-builtin', 'wrap-builtin', 'typed-builtin']); }
+function expr_stmt(Node $n) { return $n; } // v2.x: raw node allowed in stmt list
 
-function builtins(){
-    $tbl=[];
-    foreach(get_defined_functions()['internal'] as $fn){
-        if(strpos($fn,'php_')===0||in_array($fn,['exit','die']))continue;
-        $r=new ReflectionFunction($fn);
-        $min=$r->getNumberOfRequiredParameters();
-        $max=$r->getNumberOfParameters();
-        if($max===0)continue;
-        $tbl[$fn]=[$min,$max?:$min];
+// ───────────────────────────── typed signature table (positional)
+$TYPE_HINT = [
+    // string f(int?, int?) style
+    'substr'      => ['string', 'int', 'int'],
+    'strpos'      => ['string', 'string', 'int'],  // haystack, needle, offset
+    'strlen'      => ['string'],
+    'strtoupper'  => ['string'],
+    'strtolower'  => ['string'],
+    'strrev'      => ['string'],
+    // numeric
+    'abs'   => ['int'],
+    'sqrt'  => ['int'],
+    'intval'=> ['int'],
+    'pow'   => ['int', 'int'],
+    'max'   => ['int', 'int'],
+    'min'   => ['int', 'int'],
+    'rand'  => ['int', 'int'],
+];
+
+// ───────────────────────────── builtin catalogue (with min/max arg counts)
+function collect_builtins() {
+    $tbl = [];
+    foreach (get_defined_functions()['internal'] as $fn) {
+        if (strpos($fn, 'php_') === 0 || in_array($fn, ['exit', 'die'])) continue;
+        $r = new ReflectionFunction($fn);
+        $tbl[$fn] = [$r->getNumberOfRequiredParameters(), $r->getNumberOfParameters() ?: $r->getNumberOfRequiredParameters()];
     }
     return $tbl;
 }
-$BUILT=builtins();
+$BUILT_IN_ALL = collect_builtins();
 
-function make_expr_gen(array &$vars,array &$built,$use,$wrap){
-    $g=null;
-    $g=function($d=0)use(&$g,&$vars,&$built,$use,$wrap){
-        if($use&&$d>0&&ri(1,100)<=25){
-            $fn=array_rand($built);list($min,$max)=$built[$fn];
-            $argc=ri($min,min($max,4));$args=[];$arr=[];
-            for($i=0;$i<$argc;$i++){
-                $e=$d>2?new Node\Scalar\LNumber(ri(-20,20)):
-                     ($i===0?new Expr\Variable($vars[array_rand($vars)]):new Node\Scalar\LNumber(ri(-50,50)));
-                $args[]=$e; $arr[]=new Expr\ArrayItem($e);
-            }
-            return $wrap?
-                new Expr\FuncCall(new Node\Name('wrapper'),[
-                    new Node\Scalar\String_($fn),
-                    new Expr\Array_($arr)
-                ]):
-                new Expr\FuncCall(new Node\Name($fn),$args);
-        }
-        if($d>2||ri(0,1)==0){
-            return ri(0,1)?new Expr\Variable($vars[array_rand($vars)])
-                         :new Node\Scalar\LNumber(ri(-5000,5000));
-        }
-        $ops=['Plus','Minus','Mul','Div','Mod','BitwiseXor','BitwiseOr','BitwiseAnd'];
-        $cls='PhpParser\\Node\\Expr\\BinaryOp\\'.$ops[array_rand($ops)];
-        return new $cls($g($d+1),$g($d+1));
-    };return $g;
+// choose random literal by type
+function lit_by_type($type) {
+    return ($type === 'string')
+        ? new Node\Scalar\String_(rand_str())
+        : new Node\Scalar\LNumber(ri(-5000, 5000));
 }
 
-function gen_program($easy,array &$built,$use,$wrap){
-    $f=new BuilderFactory();$s=[];$vars=[];
-    for($i=0,$n=$easy?ri(2,4):ri(3,8);$i<$n;$i++){
-        $v=chr(ri(97,122)).ri(0,99);$vars[]=$v;
-        $s[]=expr_stmt(new Expr\Assign(new Expr\Variable($v),new Node\Scalar\LNumber(ri(-5000,5000))));
-    }
-    $g=make_expr_gen($vars,$built,$use,$wrap);
-    $assign=function()use(&$vars,&$g){$t=$vars[array_rand($vars)];return expr_stmt(new Expr\Assign(new Expr\Variable($t),$g()));};
+// ───────────────────────────── expression generator factory
+function make_expr_gen(array &$vars, array &$builtPool, $use, $wrap, $typed, array &$typeHint) {
+    $gen = null;
+    $gen = function ($d = 0) use (&$gen, &$vars, &$builtPool, $use, $wrap, $typed, &$typeHint) {
+        // builtin leaf
+        if ($use && $d > 0 && ri(1, 100) <= 25) {
+            $available = $typed ? array_intersect_key($builtPool, $typeHint) : $builtPool;
+            if (!$available) return new Node\Scalar\LNumber(0); // fallback
+            $fn   = array_rand($available);
+            list($min, $max) = $available[$fn];
+            $sig  = $typed && isset($typeHint[$fn]) ? $typeHint[$fn] : [];
+            $argc = $typed && $sig ? count($sig) : ri($min, min($max, 4));
 
-    for($i=0,$c=$easy?ri(4,6):ri(6,15);$i<$c;$i++){
-        ($i&1)?$s[]=$assign():$s[]=$g();
-        if(ri(0,1)==0)$s[]=new Stmt\If_($g(),['stmts'=>[$assign()]]);
-        if(ri(0,1)==0){
-            if(ri(0,1)==0){$lv='i'.ri(0,99);
-                $init=[new Expr\Assign(new Expr\Variable($lv),new Node\Scalar\LNumber(0))];
-                $cond=[new Expr\BinaryOp\Smaller(new Expr\Variable($lv),new Node\Scalar\LNumber(ri(2,10)))];
-                $step=[new Expr\PostInc(new Expr\Variable($lv))];
-                $s[]=new Stmt\For_(['init'=>$init,'cond'=>$cond,'loop'=>$step,'stmts'=>[$assign()]]);
+            $exprArgs = [];
+            $arrItems = [];
+            for ($i = 0; $i < $argc; $i++) {
+                if ($typed && isset($sig[$i])) {
+                    $expr = lit_by_type($sig[$i]);
+                } else {
+                    // default literal or variable
+                    $expr = ri(0, 1)
+                        ? new Node\Scalar\LNumber(ri(-50, 50))
+                        : new Node\Scalar\String_(rand_str());
+                }
+                // occasionally make first arg a variable for variability
+                if ($i == 0 && ri(0, 1) && !$typed) $expr = new Expr\Variable($vars[array_rand($vars)]);
+                $exprArgs[] = $expr;             // direct call args
+                $arrItems[] = new Expr\ArrayItem($expr); // wrapper array items
             }
-            // else $s[]=new Stmt\While_($g(),[$assign()]);
+            return $wrap ? new Expr\FuncCall(new Node\Name('wrapper'), [
+                        new Node\Scalar\String_($fn),
+                        new Expr\Array_($arrItems)
+                    ]) : new Expr\FuncCall(new Node\Name($fn), $exprArgs);
         }
-    }
-    $s[]=new Stmt\Return_(new Expr\Variable($vars[array_rand($vars)]));
-    $main=$f->function('main')->addStmts($s)->getNode();
-    return (new Printer())->prettyPrintFile([$main,new Expr\FuncCall(new Node\Name('main'))]);
+        // leaf literal or variable
+        if ($d > 2 || ri(0, 1) === 0) {
+            return ri(0, 1) ? new Expr\Variable($vars[array_rand($vars)])
+                            : (ri(0, 1) ? new Node\Scalar\LNumber(ri(-5000, 5000))
+                                         : new Node\Scalar\LNumber(ri(-5000,5000)));
+        }
+        // binary op
+        $ops = ['Plus','Minus','Mul','Div','Mod','BitwiseXor','BitwiseOr','BitwiseAnd'];
+        $cls = 'PhpParser\\Node\\Expr\\BinaryOp\\' . $ops[array_rand($ops)];
+        return new $cls($gen($d + 1), $gen($d + 1));
+    };
+    return $gen;
 }
 
-function write_p($c,$d,$i){if(!is_dir($d)&&!mkdir($d,0777,true))die('mkdir');$p=rtrim($d,'/\\')."/prog_$i.php";file_put_contents($p,$c);return $p;}
+// ───────────────────────────── program generator (no while loops)
+function gen_program($easy, array &$opt, array &$typeHint) {
+    global $BUILT_IN_ALL;
+    $factory = new BuilderFactory();
+    $stmts   = [];
+    $vars    = [];
 
-function main(array &$b){$o=opts();$e=isset($o['easy']);$u=!isset($o['no-builtin']);$w=isset($o['wrap-builtin']);if(isset($o['seed'])&&$o['seed']!==false){mt_srand((int)$o['seed']);}
- if(!isset($o['n'])||isset($o['print'])){echo gen_program($e,$b,$u,$w),"\n";return;}
- $n=(int)$o['n'];$out = (isset($o['out']) && $o['out'] !== false) ? $o['out'] : __DIR__ . '/generated';for($i=1;$i<=$n;$i++)echo write_p(gen_program($e,$b,$u,$w),$out,$i)."\n";}
+    for ($i = 0, $g = $easy ? ri(2, 4) : ri(3, 8); $i < $g; $i++) {
+        $name    = chr(ri(97, 122)) . ri(0, 99);
+        $vars[]  = $name;
+        $stmts[] = expr_stmt(new Expr\Assign(new Expr\Variable($name), new Node\Scalar\LNumber(ri(-5000, 5000))));
+    }
 
-main($BUILT);
+    $exprGen = make_expr_gen($vars, $BUILT_IN_ALL, $opt['use'], $opt['wrap'], $opt['typed'], $typeHint);
+    $makeAssign = function () use (&$vars, &$exprGen) {
+        $t = $vars[array_rand($vars)];
+        return expr_stmt(new Expr\Assign(new Expr\Variable($t), $exprGen()));
+    };
+
+    for ($i = 0, $cnt = $easy ? ri(4, 6) : ri(6, 15); $i < $cnt; $i++) {
+        ($i & 1) ? $stmts[] = $makeAssign() : $stmts[] = $exprGen();
+
+        if (ri(0, 1) === 0) {
+            $stmts[] = new Stmt\If_($exprGen(), ['stmts' => [$makeAssign()]]);
+        }
+        if (ri(0, 1) === 0) {
+            $lv   = 'i' . ri(0, 99);
+            $init = [new Expr\Assign(new Expr\Variable($lv), new Node\Scalar\LNumber(0))];
+            $cond = [new Expr\BinaryOp\Smaller(new Expr\Variable($lv), new Node\Scalar\LNumber(ri(2, 10)))] ;
+            $step = [new Expr\PostInc(new Expr\Variable($lv))];
+            $stmts[] = new Stmt\For_(['init' => $init, 'cond' => $cond, 'loop' => $step, 'stmts' => [$makeAssign()]]);
+        }
+    }
+
+    $stmts[] = new Stmt\Return_(new Expr\Variable($vars[array_rand($vars)]));
+
+    $mainFunc = $factory->function('main')->addStmts($stmts)->getNode();
+    return (new Printer())->prettyPrintFile([$mainFunc, new Expr\FuncCall(new Node\Name('main'))]);
+}
+
+// ───────────────────────────── entrypoint
+function write_p($code, $dir, $idx) {
+    if (!is_dir($dir) && !mkdir($dir, 0777, true)) die("mkdir failed");
+    $p = rtrim($dir, '/\\') . "/prog_{$idx}.php";
+    file_put_contents($p, $code);
+    return $p;
+}
+
+function main(array &$typeHint) {
+    $o = opts();
+    $opt = [
+        'easy'  => isset($o['easy']),
+        'use'   => !isset($o['no-builtin']),
+        'wrap'  => isset($o['wrap-builtin']),
+        'typed' => isset($o['typed-builtin']),
+    ];
+
+    if (isset($o['seed']) && $o['seed'] !== false) {
+        mt_srand((int)$o['seed']);
+    }
+
+    // single program to stdout
+    if (!isset($o['n']) || isset($o['print'])) {
+        echo gen_program($opt['easy'], $opt, $typeHint) . "
+";
+        return;
+    }
+
+    // bulk generation
+    $n   = (int) $o['n'];
+    $out = (isset($o['out']) && $o['out'] !== false) ? $o['out'] : __DIR__ . '/generated';
+    echo "[*] Generating $n programs into $out ...
+";
+    for ($i = 1; $i <= $n; $i++) {
+        $code = gen_program($opt['easy'], $opt, $typeHint);
+        echo "[+] " . write_p($code, $out, $i) . "
+";
+    }
+}
+
+main($TYPE_HINT);
