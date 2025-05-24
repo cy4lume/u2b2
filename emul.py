@@ -47,7 +47,7 @@ REGS = Registers()
 
 def classify(insn: CsInsn):
     # J-type (jump / jal)
-    if insn.id in (mips.MIPS_INS_J, mips.MIPS_INS_JAL):
+    if insn.id in (mips.MIPS_INS_J, mips.MIPS_INS_JAL, mips.MIPS_INS_BAL, mips.MIPS_INS_JALR):
         return "J"
     # I-type (imm)
     for operand in insn.operands:
@@ -181,6 +181,10 @@ def handle_Rtype(insn: CsInsn):
             rd = operands[0]
             REGS[rd] = REGS[mips.MIPS_REG_LO]
 
+        case mips.MIPS_INS_MOVE:
+            rd, rs = operands
+            REGS[rd] = REGS[rs]
+
         case mips.MIPS_INS_SLT:
             rd, rs, rt = operands
             if bool_proxy(REGS[rs] < REGS[rt]):
@@ -199,6 +203,12 @@ def handle_Rtype(insn: CsInsn):
         case mips.MIPS_INS_SYSCALL:
             raise ValueError(
                 f"syscall [{REGS[mips.MIPS_REG_V0]}] not yet supported")
+        
+        case mips.MIPS_INS_NOP:
+            pass
+        
+        case _:
+            raise NotImplementedError(f"not yet: {insn}")
 
 
 def handle_Itype(insn: CsInsn):
@@ -244,7 +254,8 @@ def handle_Itype(insn: CsInsn):
                 REGS[rd] = 1
             else:
                 REGS[rd] = 0
-
+        case _:
+            raise NotImplementedError(f"not yet: {insn}")
 
 def handle_Jtype(insn: CsInsn):
     operands = list(parse_operand(insn))
@@ -258,10 +269,36 @@ def handle_Jtype(insn: CsInsn):
             REGS[mips.MIPS_REG_RA] = pc + 4
 
             pc = operands[0]
-            jump_to(pc)
+            jump_to(pc, True)
 
+        case mips.MIPS_INS_BAL:
+            pc = insn.address
+            REGS[mips.MIPS_REG_RA] = pc +4
+            
+            pc = operands[0]
+            jump_to(pc, True)
 
-def jump_to(address: int):
+        case mips.MIPS_INS_JALR:
+            rs = operands[0]
+
+            pc = insn.address
+            REGS[mips.MIPS_REG_RA] = pc + 4
+            # print(REGS[rs])
+            if REGS[rs].arg(1) == 4264016: # temp1
+                jump_to(0x4006f0, True)
+            elif REGS[rs].arg(1) == 4264024: # TODO: temp2
+                jump_to(0x4006f0, True)
+                pass
+            else:
+                jump_to(REGS[rs], True)
+
+        case _:
+            raise NotImplementedError(f"not yet: {insn}")
+
+def jump_to(address: int, calling = False):
+    if calling:
+        # TODO: check GOT
+        pass
     uc.reg_write(UC_MIPS_REG_PC, address)
 
 
@@ -272,13 +309,14 @@ md.detail = True
 def hook_instr(uc: Uc, address: int, size: int, user_data):
     insn_bytes = uc.mem_read(address, size)
     for insn in md.disasm(insn_bytes, address):
+        print(insn)
         match classify(insn):
             case "R":
                 handle_Rtype(insn)
             case "I":
                 handle_Itype(insn)
-            case "R":
-                handle_Rtype(insn)
+            case "J":
+                handle_Jtype(insn)
 
 
 def parse_operand(insn: CsInsn):
@@ -297,6 +335,21 @@ def parse_operand(insn: CsInsn):
 def map_elf(uc: Uc, path: str):
     with open(path, "rb") as f:
         elf = ELFFile(f)
+
+        symtab_sections = []
+        if elf.get_section_by_name('.symtab'):
+            symtab_sections.append(elf.get_section_by_name('.symtab'))
+        if elf.get_section_by_name('.dynsym'):
+            symtab_sections.append(elf.get_section_by_name('.dynsym'))
+
+        for symtab in symtab_sections:
+            for symbol in symtab.iter_symbols():
+                st_val  = symbol['st_value']
+                st_size = symbol['st_size']
+                # print(symbol.name, hex(st_val), st_size)
+
+        # sp todo
+
         for seg in elf.iter_segments():
             if seg["p_type"] != "PT_LOAD":
                 continue
@@ -331,7 +384,7 @@ STACK_TOP = 0x7fff0000
 STACK_SIZE = PAGE_SIZE
 uc.mem_map(align_down(STACK_TOP - STACK_SIZE),
            STACK_SIZE, UC_PROT_READ | UC_PROT_WRITE)
-uc.reg_write(UC_MIPS_REG_SP, STACK_TOP)
+uc.reg_write(UC_MIPS_REG_SP, STACK_TOP - 4)
 
 uc.reg_write(UC_MIPS_REG_PC, entry)
 
