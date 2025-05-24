@@ -141,6 +141,9 @@ def bool_proxy(term):
 class DepthException(Exception):
     pass
 
+def handle_overflow():
+    # not yet
+    pass
 
 def handle_Rtype(insn: CsInsn):
     operands = list(parse_operand(insn))
@@ -148,7 +151,7 @@ def handle_Rtype(insn: CsInsn):
         case mips.MIPS_INS_ADD:
             rd, rs, rt = operands
             REGS[rd] = REGS[rs] + REGS[rt]
-            # TODO: overflow
+            handle_overflow()
 
         case mips.MIPS_INS_SUB:
             rd, rs, rt = operands
@@ -260,7 +263,7 @@ def handle_Itype(insn: CsInsn):
         case mips.MIPS_INS_ADDI:
             rd, rs, imm = operands
             REGS[rd] = REGS[rs] + imm
-            # TODO: overflow
+            handle_overflow()
 
         case mips.MIPS_INS_ADDIU:
             rd, rs, imm = operands
