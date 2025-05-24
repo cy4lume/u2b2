@@ -1,6 +1,6 @@
 from binaryninja import *
 
-def get_got(bv: BinaryView) -> list[str]:
+def get_got(bv: BinaryView):
     ctx = UIContext.activeContext()
     if ctx is None:
         return None
