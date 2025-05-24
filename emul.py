@@ -1,3 +1,4 @@
+import sys
 from capstone import (
     CS_OP_IMM,
     CS_OP_MEM,
@@ -23,6 +24,8 @@ from unicorn import (
 from unicorn.mips_const import UC_MIPS_REG_SP, UC_MIPS_REG_PC
 import z3
 
+from register import Registers
+
 
 PAGE_SIZE = 0x1000
 
@@ -35,52 +38,11 @@ def align_up(addr, align=PAGE_SIZE):
     return (addr + align - 1) & ~(align - 1)
 
 
-def map_elf(uc: Uc, path: str):
-    with open(path, "rb") as f:
-        elf = ELFFile(f)
-        for seg in elf.iter_segments():
-            if seg["p_type"] != "PT_LOAD":
-                continue
-
-            vaddr = seg["p_vaddr"]
-            memsz = seg["p_memsz"]
-            filesz = seg["p_filesz"]
-            data = seg.data()
-
-            # 페이지 경계로 맞춰 매핑
-            base = align_down(vaddr)
-            top = align_up(vaddr + memsz)
-            size = top - base
-
-            # 읽기/쓰기/실행 권한 모두 설정
-            uc.mem_map(base, size, UC_PROT_READ | UC_PROT_WRITE | UC_PROT_EXEC)
-
-            # 파일에 있는 부분만 써주고, 나머지는 0으로 남겨둠 (.bss 영역 대비)
-            offset_in_page = vaddr - base
-            uc.mem_write(vaddr, data)
-            if memsz > filesz:
-                uc.mem_write(vaddr + filesz, b"\x00" * (memsz - filesz))
-
-    return elf.header["e_entry"]
-
-
-uc = Uc(UC_ARCH_MIPS, UC_MODE_MIPS32 | UC_MODE_BIG_ENDIAN)
-
-entry = map_elf(uc, "./tests/exploit.elf")
-
-STACK_TOP = 0x7fff0000
-STACK_SIZE = PAGE_SIZE
-uc.mem_map(align_down(STACK_TOP - STACK_SIZE),
-           STACK_SIZE, UC_PROT_READ | UC_PROT_WRITE)
-uc.reg_write(UC_MIPS_REG_SP, STACK_TOP)
-
-uc.reg_write(UC_MIPS_REG_PC, entry)
-
 Addr = z3.BitVecSort(32)
 Value = z3.BitVecSort(32)
 
 MEMORY = z3.Array("MEMORY", Addr, Value)
-REGS = [z3.BitVec(f"REG{i}", 32) for i in range(256)]
+REGS = Registers()
 
 
 def load(addr):
@@ -141,9 +103,11 @@ def bool_proxy(term):
 class DepthException(Exception):
     pass
 
+
 def handle_overflow():
     # not yet
     pass
+
 
 def handle_Rtype(insn: CsInsn):
     operands = list(parse_operand(insn))
@@ -241,7 +205,8 @@ def handle_Rtype(insn: CsInsn):
                 raise ValueError("not supported")
 
         case mips.MIPS_INS_SYSCALL:
-            raise ValueError("not yet supported")
+            raise ValueError(
+                f"syscall [{REGS[mips.MIPS_REG_V0]}] not yet supported")
 
 
 def handle_Itype(insn: CsInsn):
@@ -336,6 +301,47 @@ def parse_operand(insn: CsInsn):
         else:
             raise ValueError("what?!")
 
+
+def map_elf(uc: Uc, path: str):
+    with open(path, "rb") as f:
+        elf = ELFFile(f)
+        for seg in elf.iter_segments():
+            if seg["p_type"] != "PT_LOAD":
+                continue
+
+            vaddr = seg["p_vaddr"]
+            memsz = seg["p_memsz"]
+            filesz = seg["p_filesz"]
+            data = seg.data()
+
+            # 페이지 경계로 맞춰 매핑
+            base = align_down(vaddr)
+            top = align_up(vaddr + memsz)
+            size = top - base
+
+            # 읽기/쓰기/실행 권한 모두 설정
+            uc.mem_map(base, size, UC_PROT_READ | UC_PROT_WRITE | UC_PROT_EXEC)
+
+            # 파일에 있는 부분만 써주고, 나머지는 0으로 남겨둠 (.bss 영역 대비)
+            offset_in_page = vaddr - base
+            uc.mem_write(vaddr, data)
+            if memsz > filesz:
+                uc.mem_write(vaddr + filesz, b"\x00" * (memsz - filesz))
+
+    return elf.header["e_entry"]
+
+
+uc = Uc(UC_ARCH_MIPS, UC_MODE_MIPS32 | UC_MODE_BIG_ENDIAN)
+
+entry = map_elf(uc, sys.argv[1])
+
+STACK_TOP = 0x7fff0000
+STACK_SIZE = PAGE_SIZE
+uc.mem_map(align_down(STACK_TOP - STACK_SIZE),
+           STACK_SIZE, UC_PROT_READ | UC_PROT_WRITE)
+uc.reg_write(UC_MIPS_REG_SP, STACK_TOP)
+
+uc.reg_write(UC_MIPS_REG_PC, entry)
 
 uc.hook_add(UC_HOOK_CODE, hook_instr)
 
