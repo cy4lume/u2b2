@@ -5,6 +5,8 @@ from state import Memory, Registers
 HEAP_BASE = 0x10000000
 
 # some helper functions
+
+
 def range_unroll(n, max_unroll=256):
     if isinstance(n, BitVecNumRef):
         return list(range(n.as_long()))
@@ -12,9 +14,11 @@ def range_unroll(n, max_unroll=256):
         return list(range(max_unroll))
 
 # mem allocations
+
+
 class Libc:
     @staticmethod
-    def malloc(size: BitVec)->BitVec:
+    def malloc(size: BitVec) -> BitVec:
         base = HEAP_BASE
         HEAP_BASE += simplify(size).as_long()
         return base
@@ -45,7 +49,7 @@ class Libc:
         for i in range_unroll(n):
             byte = Select(mem, src + i)
             new_mem = Store(new_mem, dst + i, byte)
-        
+
         new_regs = regs.copy()
         new_regs[mips.MIPS_REG_V0] = dst
 
@@ -60,7 +64,7 @@ class Libc:
         new_mem = mem
         for i in range_unroll(n):
             new_mem = Store(new_mem, s + i, c)
-        
+
         new_regs = regs.copy()
         new_regs[mips.MIPS_REG_V0] = s1
 
@@ -210,8 +214,28 @@ class Libc:
 
     @staticmethod
     def puts(regs: Registers, mem: Memory):
-        print("puts here")
-        regs[mips.MIPS_REG_V0] = 1
+        s = b""
+        index = regs[mips.MIPS_REG_A0]
+        while True:
+            data = mem.load(index)
+            if isinstance(data, z3.BitVecNumRef):
+                data = data.as_long()
+            elif isinstance(data, int):
+                pass
+            else:
+                s += f"[[{data}]]".encode()
+                break
+
+            data = int.to_bytes(data, 4, "little")
+            if b"\x00" in data:
+                s += data.split(b"\x00")[0]
+                break
+            else:
+                s += data
+
+            index += 4
+        print(s.decode())
+        regs[mips.MIPS_REG_V0] = len(s)
         return regs, mem
 
     @staticmethod
