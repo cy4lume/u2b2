@@ -235,6 +235,12 @@ def handle_Itype(insn: CsInsn):
                 jump_to(pc)
             else:
                 jump_to(insn.address + 4)
+        case mips.MIPS_INS_BNEZ:
+            rs, pc = operands
+            if bool_proxy(REGS[rs] != 0):
+                jump_to(pc)
+            else:
+                jump_to(insn.address + 4)
 
         # actually not I-type, but for convenience
         case mips.MIPS_INS_SLL:
@@ -529,19 +535,18 @@ uc.mem_map(align_down(STACK_TOP - STACK_SIZE),
 uc.reg_write(UC_MIPS_REG_SP, STACK_TOP - 4)
 REGS[mips.MIPS_REG_SP] = STACK_TOP - 4
 
-uc.reg_write(UC_MIPS_REG_PC, entry)
-
 uc.hook_add(UC_HOOK_CODE, hook_instr)
 
 
-def run():
+def run(func_addr_start, func_addr_end = 0):
     global terms, conditions
     terms = []
     models = []
     while True:
         conditions = []
         try:
-            uc.emu_start(entry, 0)
+            uc.reg_write(UC_MIPS_REG_PC, func_addr_start)
+            uc.emu_start(func_addr_start, func_addr_end)
         except Exception as e:
             print("Emu stopped:", e)
 
@@ -558,7 +563,14 @@ def run():
 
     return models
 
+def trace(func_addr_start, func_addr_end, args):
+    try:
+        uc.reg_write(UC_MIPS_REG_PC, func_addr_start)
+        uc.emu_start(func_addr_start, func_addr_end)
+        # TODO: args, coverage, deadcode
+    except Exception as e:
+        print("Emu stopped:", e)
 
-models = run()
+models = run(entry)
 for model in models:
     print(model)
