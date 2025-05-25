@@ -210,6 +210,7 @@ class Libc:
 
     @staticmethod
     def puts(regs: Registers, mem: Memory):
+        print("puts here")
         regs[mips.MIPS_REG_V0] = 1
         return regs, mem
 
