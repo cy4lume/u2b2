@@ -1,6 +1,6 @@
 from z3 import *
 import capstone.mips_const as mips
-import register
+from state import Memory, Registers
 
 HEAP_BASE = 0x10000000
 
@@ -12,266 +12,270 @@ def range_unroll(n, max_unroll=256):
         return list(range(max_unroll))
 
 # mem allocations
-def malloc(size: BitVec)->BitVec:
-    base = HEAP_BASE
-    HEAP_BASE += simplify(size).as_long()
-    return base
-
-def calloc():
-    pass
-
-def realloc():
-    pass
-
-# mem free
-def free(regs: Registers, mem: Memory):
-    ptr = regs[mips.MIPS_REG_A0]
-    mem.pop(simplify(ptr).as_long(), None)
-    return regs, mem
-
-# misc mem instr
-def memcpy(regs: Registers, mem: Memory):
-    dst = regs[mips.MIPS_REG_A0]
-    src = regs[mips.MIPS_REG_A1]
-    n = regs[mips.MIPS_REG_A2]
-
-    new_mem = mem
-    for i in range_unroll(n):
-        byte = Select(mem, src + i)
-        new_mem = Store(new_mem, dst + i, byte)
-    
-    new_regs = regs.copy()
-    new_regs[mips.MIPS_REG_V0] = dst
-
-    return new_regs, new_mem
-
-def memset(regs: Registers, mem: Memory):
-    s = regs[mips.MIPS_REG_A0]
-    c = regs[mips.MIPS_REG_A1]
-    n = regs[mips.MIPS_REG_A2]
-
-    new_mem = mem
-    for i in range_unroll(n):
-        new_mem = Store(new_mem, s + i, c)
-    
-    new_regs = regs.copy()
-    new_regs[mips.MIPS_REG_V0] = s1
+class Libc:
+    def malloc(size: BitVec)->BitVec:
+        base = HEAP_BASE
+        HEAP_BASE += simplify(size).as_long()
+        return base
+
+    def calloc():
+        pass
+
+    def realloc():
+        pass
+
+    # mem free
+    def free(regs: Registers, mem: Memory):
+        ptr = regs[mips.MIPS_REG_A0]
+        mem.pop(simplify(ptr).as_long(), None)
+        return regs, mem
+
+    # misc mem instr
+    def memcpy(regs: Registers, mem: Memory):
+        dst = regs[mips.MIPS_REG_A0]
+        src = regs[mips.MIPS_REG_A1]
+        n = regs[mips.MIPS_REG_A2]
+
+        new_mem = mem
+        for i in range_unroll(n):
+            byte = Select(mem, src + i)
+            new_mem = Store(new_mem, dst + i, byte)
+        
+        new_regs = regs.copy()
+        new_regs[mips.MIPS_REG_V0] = dst
+
+        return new_regs, new_mem
+
+    def memset(regs: Registers, mem: Memory):
+        s = regs[mips.MIPS_REG_A0]
+        c = regs[mips.MIPS_REG_A1]
+        n = regs[mips.MIPS_REG_A2]
+
+        new_mem = mem
+        for i in range_unroll(n):
+            new_mem = Store(new_mem, s + i, c)
+        
+        new_regs = regs.copy()
+        new_regs[mips.MIPS_REG_V0] = s1
+
+        return new_regs, new_mem
+
+    def memmove():
+        pass
+
+    # str operations
+    def strlen(regs: Registers, mem: Memory):
+        pass
+        """
+        s = regs[mips.MIPS_REG_A0]
+        
+        new_regs = regs.copy()
+        new_regs[mips.MIPS_REG_V0] = 
+        # 언롤링하고 대충잘하면됨ㅋㅋ
+        
+        return new_regs, mem
+        """
 
-    return new_regs, new_mem
+    def strnlen():
+        # TODO
+        pass
 
-def memmove():
-    pass
+    def strcmp(regs: Registers, mem: Memory):
+        # TODO
+        pass
 
-# str operations
-def strlen(regs: Registers, mem: Memory):
-    s = regs[mips.MIPS_REG_A0]
-    
-    new_regs = regs.copy()
-    new_regs[mips.MIPS_REG_V0] = 
-    # 언롤링하고 대충잘하면됨ㅋㅋ
-    
-    return new_regs, mem
+    def strncmp():
+        # TODO
+        pass
 
-def strnlen():
-    # TODO
-    pass
+    def strchr():
+        pass
 
-def strcmp(regs: Registers, mem: Memory):
-    # TODO
-    pass
+    def strrchr():
+        pass
 
-def strncmp():
-    # TODO
-    pass
+    def strstr():
+        pass
 
-def strchr():
-    pass
+    def strtok():
+        pass
 
-def strrchr():
-    pass
+    def strcpy():
+        # TODO
+        pass
 
-def strstr():
-    pass
+    def strncpy():
+        # TODO
+        pass
 
-def strtok():
-    pass
+    def sprintf():
+        pass
 
-def strcpy():
-    # TODO
-    pass
+    def snprintf():
+        pass
 
-def strncpy():
-    # TODO
-    pass
+    # file
+    def open():
+        # TODO
+        pass
 
-def sprintf():
-    pass
+    def close():
+        # TODO
+        pass
 
-def snprintf():
-    pass
+    def read(regs: Registers, mem: Memory):
+        # TODO
+        pass
 
-# file
-def open():
-    # TODO
-    pass
+    def write():
+        # TODO
+        pass
 
-def close():
-    # TODO
-    pass
+    def lseek():
+        pass
 
-def read(regs: Registers, mem: Memory):
-    # TODO
-    pass
+    def stat():
+        pass
 
-def write():
-    # TODO
-    pass
+    def fopen():
+        pass
 
-def lseek():
-    pass
+    def fclose():
+        pass
 
-def stat():
-    pass
+    def fread():
+        pass
 
-def fopen():
-    pass
+    def fwrite():
+        pass
 
-def fclose():
-    pass
+    def fseek():
+        pass
 
-def fread():
-    pass
+    def ftell():
+        pass
 
-def fwrite():
-    pass
+    def fflush():
+        pass
 
-def fseek():
-    pass
+    def getchar():
+        pass
 
-def ftell():
-    pass
+    def putchar():
+        pass
 
-def fflush():
-    pass
+    def gets():
+        pass
 
-def getchar():
-    pass
+    def fgets():
+        pass
 
-def putchar():
-    pass
+    def puts():
+        pass
 
-def gets():
-    pass
+    def printf():
+        pass
 
-def fgets():
-    pass
+    def fprintf():
+        pass
 
-def puts():
-    pass
+    def scanf():
+        pass
 
-def printf():
-    pass
+    def sscanf():
+        pass
 
-def fprintf():
-    pass
+    # process controls
+    def exit():
+        # TODO
+        pass
 
-def scanf():
-    pass
+    def abort():
+        pass
 
-def sscanf():
-    pass
+    def system():
+        pass
 
-# process controls
-def exit():
-    # TODO
-    pass
+    def fork():
+        pass
 
-def abort():
-    pass
+    def execve():
+        pass
 
-def system():
-    pass
+    def wait():
+        pass
 
-def fork():
-    pass
+    def kill():
+        pass
 
-def execve():
-    pass
+    # time
+    def time():
+        pass
 
-def wait():
-    pass
+    def gettimeofday():
+        pass
 
-def kill():
-    pass
+    def clock():
+        pass
 
-# time
-def time():
-    pass
+    # pseudo-random
+    def rand():
+        # TODO
+        pass
 
-def gettimeofday():
-    pass
+    def srand():
+        # TODO
+        pass
 
-def clock():
-    pass
+    # sorting / search
+    def qsort():
+        pass
 
-# pseudo-random
-def rand():
-    # TODO
-    pass
+    def bsearch():
+        pass
 
-def srand():
-    # TODO
-    pass
+    # typecasting
+    def atoi():
+        # TODO
+        pass
 
-# sorting / search
-def qsort():
-    pass
+    def atol():
+        # TODO
+        pass
 
-def bsearch():
-    pass
+    def strtol():
+        pass
 
-# typecasting
-def atoi():
-    # TODO
-    pass
+    def strtod():
+        pass
 
-def atol():
-    # TODO
-    pass
+    # math
+    def sin():
+        pass
 
-def strtol():
-    pass
+    def cos():
+        pass
 
-def strtod():
-    pass
+    def tan():
+        pass
 
-# math
-def sin():
-    pass
+    def exp():
+        pass
 
-def cos():
-    pass
+    def log():
+        pass
 
-def tan():
-    pass
+    def pow():
+        pass
 
-def exp():
-    pass
+    def sqrt():
+        pass
 
-def log():
-    pass
+    def ceil():
+        pass
 
-def pow():
-    pass
-
-def sqrt():
-    pass
-
-def ceil():
-    pass
-
-def floor():
-    pass
+    def floor():
+        pass
 
 
 """

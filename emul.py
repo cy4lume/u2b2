@@ -27,6 +27,7 @@ from unicorn.mips_const import UC_MIPS_REG_SP, UC_MIPS_REG_PC
 import z3
 
 from state import Memory, Registers
+from symlibc import Libc as libc 
 
 
 PAGE_SIZE = 0x1000
@@ -291,8 +292,9 @@ def handle_Jtype(insn: CsInsn):
             if global_table.get(target_address) != None and global_table.get(target_address) == "__libc_start_main": # call __libc_start_main
                 jump_to(main_address, True)
             elif global_table.get(target_address) != None: # call dynamic library function
-                # TODO : call libc function with register
-                pass
+                if hasattr(libc, global_table.get(target_address)):
+                    func = getattr(libc, global_table.get(target_address))
+                    # TODO call func
             else:
                 jump_to(REGS[rs], True)
 
