@@ -28,10 +28,11 @@ import z3
 
 from state import Memory, Registers
 from symlibc import Libc as libc
-from syscall import get_syscall_handler
+from syscall import get_syscall_handler, handle_sys_exit
 
 
 PAGE_SIZE = 0x1000
+MAGIC_RETURN = 0x42424242
 
 
 def align_down(addr, align=PAGE_SIZE):
@@ -87,6 +88,7 @@ def bool_proxy(term):
             term if branch else z3.simplify(z3.Not(term)))
         return branch
 
+    
     if len(terms) >= 10:
         raise DepthException()
 
@@ -158,14 +160,6 @@ def handle_Rtype(insn: CsInsn):
             rd, rs, rt = operands
             REGS[rd] = REGS[rs] | REGS[rt]
 
-        case mips.MIPS_INS_SLL:
-            rd, rs, shamt = operands
-            REGS[rd] = REGS[rs] << shamt
-
-        case mips.MIPS_INS_SRL:
-            rd, rs, shamt = operands
-            REGS[rd] = z3.LShR(REGS[rs], shamt)
-
         case mips.MIPS_INS_LW:
             rd = operands[0]
             pc, rs = operands[1]
@@ -200,6 +194,8 @@ def handle_Rtype(insn: CsInsn):
             pc = REGS[rs]
             if isinstance(pc, int):
                 jump_to(pc)
+            elif isinstance(pc, z3.BitVecNumRef):
+                jump_to(pc.as_long())
             else:
                 raise ValueError("not supported")
 
@@ -233,6 +229,15 @@ def handle_Itype(insn: CsInsn):
                 jump_to(pc)
             else:
                 jump_to(insn.address + 4)
+
+        # actually not I-type, but for convenience
+        case mips.MIPS_INS_SLL:
+            rd, rs, shamt = operands
+            REGS[rd] = REGS[rs] << shamt
+
+        case mips.MIPS_INS_SRL:
+            rd, rs, shamt = operands
+            REGS[rd] = z3.LShR(REGS[rs], shamt)
 
         case mips.MIPS_INS_ADDI:
             rd, rs, imm = operands
@@ -295,6 +300,7 @@ def handle_Jtype(insn: CsInsn):
             target_address = REGS[rs].arg(1).as_long()
             # call __libc_start_main
             if global_table.get(target_address) != None and global_table.get(target_address) == "__libc_start_main":
+                REGS[mips.MIPS_REG_RA] = MAGIC_RETURN # main return
                 jump_to(main_address, False)
             # call dynamic library function
             elif global_table.get(target_address) != None:
@@ -313,6 +319,9 @@ def jump_to(address: int, calling=False):
     if calling:
         # TODO: check GOT
         pass
+    if address == MAGIC_RETURN:
+        REGS[mips.MIPS_REG_A0] = REGS[mips.MIPS_REG_V0]
+        handle_sys_exit(REGS, MEMORY)
     uc.reg_write(UC_MIPS_REG_PC, address)
 
 
@@ -456,6 +465,16 @@ def map_elf(uc: Uc, path: str):
 
         # sp todo
 
+        got_ranges = []
+        for sec in elf.iter_sections():
+            if sec.name.startswith('.got'):
+                start = sec['sh_addr']
+                end   = start + sec['sh_size']
+                got_ranges.append((start, end))
+
+        def in_got(addr):
+            return any(start <= addr < end for start, end in got_ranges)
+
         for seg in elf.iter_segments():
             if seg["p_type"] != "PT_LOAD":
                 continue
@@ -475,6 +494,17 @@ def map_elf(uc: Uc, path: str):
 
             # 파일에 있는 부분만 써주고, 나머지는 0으로 남겨둠 (.bss 영역 대비)
             offset_in_page = vaddr - base
+
+            # Write in memory
+            for addr in range(vaddr, vaddr + memsz, 4):
+                if in_got(addr): # ignore got sections
+                    continue
+                offset = addr - vaddr
+                seg = data[offset:offset+4]
+                if len(seg) == 0:
+                    seg = b"\x00" * 4
+                MEMORY.store(addr, int.from_bytes(seg, "little"))
+
             uc.mem_write(vaddr, data)
             if memsz > filesz:
                 uc.mem_write(vaddr + filesz, b"\x00" * (memsz - filesz))
@@ -491,6 +521,7 @@ STACK_SIZE = PAGE_SIZE
 uc.mem_map(align_down(STACK_TOP - STACK_SIZE),
            STACK_SIZE, UC_PROT_READ | UC_PROT_WRITE)
 uc.reg_write(UC_MIPS_REG_SP, STACK_TOP - 4)
+REGS[mips.MIPS_REG_SP] = STACK_TOP - 4
 
 uc.reg_write(UC_MIPS_REG_PC, entry)
 
