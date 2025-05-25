@@ -547,8 +547,8 @@ def run():
 
         s = z3.Solver()
         s.add(z3.And(*conditions))
-        s.check()
-        models.append(s.model())
+        if s.check() == z3.sat:
+            models.append(s.model())
 
         while len(terms) > 0 and not terms[-1]:
             terms.pop()
