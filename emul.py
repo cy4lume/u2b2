@@ -290,7 +290,7 @@ def handle_Jtype(insn: CsInsn):
             # print(REGS[rs])
             target_address = REGS[rs].arg(1).as_long()
             if global_table.get(target_address) != None and global_table.get(target_address) == "__libc_start_main": # call __libc_start_main
-                jump_to(main_address, True)
+                jump_to(main_address, False)
             elif global_table.get(target_address) != None: # call dynamic library function
                 if hasattr(libc, global_table.get(target_address)):
                     func = getattr(libc, global_table.get(target_address))
