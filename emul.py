@@ -28,8 +28,7 @@ import z3
 
 from state import Memory, Registers
 from symlibc import Libc as libc 
-
-
+from syscall import SYSCALL_HANDLERS
 PAGE_SIZE = 0x1000
 
 
@@ -205,8 +204,12 @@ def handle_Rtype(insn: CsInsn):
                 raise ValueError("not supported")
 
         case mips.MIPS_INS_SYSCALL:
-            raise ValueError(
-                f"syscall [{REGS[mips.MIPS_REG_V0]}] not yet supported")
+            syscall_num = REGS[mips.MIPS_REG_V0]
+            handler = SYSCALL_HANDLERS.get(syscall_num)
+            if not handler:
+                raise ValueError(
+                    f"syscall [{syscall_num}] not yet supported")
+            handler(REGS, MEMORY) 
         
         case mips.MIPS_INS_NOP:
             pass
