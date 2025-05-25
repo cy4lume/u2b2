@@ -27,8 +27,10 @@ from unicorn.mips_const import UC_MIPS_REG_SP, UC_MIPS_REG_PC
 import z3
 
 from state import Memory, Registers
-from symlibc import Libc as libc 
-from syscall import SYSCALL_HANDLERS
+from symlibc import Libc as libc
+from syscall import get_syscall_handler
+
+
 PAGE_SIZE = 0x1000
 
 
@@ -40,11 +42,8 @@ def align_up(addr, align=PAGE_SIZE):
     return (addr + align - 1) & ~(align - 1)
 
 
-
-
 MEMORY = Memory()
 REGS = Registers()
-
 
 
 def classify(insn: CsInsn):
@@ -63,6 +62,7 @@ conditions = []
 terms = []
 global_table = {}
 main_address = None
+
 
 def bool_proxy(term):
     if isinstance(term, bool):
@@ -205,15 +205,15 @@ def handle_Rtype(insn: CsInsn):
 
         case mips.MIPS_INS_SYSCALL:
             syscall_num = REGS[mips.MIPS_REG_V0]
-            handler = SYSCALL_HANDLERS.get(syscall_num)
+            handler = get_syscall_handler(syscall_num)
             if not handler:
                 raise ValueError(
                     f"syscall [{syscall_num}] not yet supported")
-            handler(REGS, MEMORY) 
-        
+            handler(REGS, MEMORY)
+
         case mips.MIPS_INS_NOP:
             pass
-        
+
         case _:
             raise NotImplementedError(f"not yet: {insn}")
 
@@ -264,6 +264,7 @@ def handle_Itype(insn: CsInsn):
         case _:
             raise NotImplementedError(f"not yet: {insn}")
 
+
 def handle_Jtype(insn: CsInsn):
     operands = list(parse_operand(insn))
     match insn.id:
@@ -280,8 +281,8 @@ def handle_Jtype(insn: CsInsn):
 
         case mips.MIPS_INS_BAL:
             pc = insn.address
-            REGS[mips.MIPS_REG_RA] = pc +4
-            
+            REGS[mips.MIPS_REG_RA] = pc + 4
+
             pc = operands[0]
             jump_to(pc, True)
 
@@ -292,20 +293,23 @@ def handle_Jtype(insn: CsInsn):
             REGS[mips.MIPS_REG_RA] = pc + 4
             # print(REGS[rs])
             target_address = REGS[rs].arg(1).as_long()
-            if global_table.get(target_address) != None and global_table.get(target_address) == "__libc_start_main": # call __libc_start_main
+            # call __libc_start_main
+            if global_table.get(target_address) != None and global_table.get(target_address) == "__libc_start_main":
                 jump_to(main_address, False)
-            elif global_table.get(target_address) != None: # call dynamic library function
+            # call dynamic library function
+            elif global_table.get(target_address) != None:
                 if hasattr(libc, global_table.get(target_address)):
                     func = getattr(libc, global_table.get(target_address))
                     func(REGS, MEMORY)
-                    jump_to(REGS[mips.MIPS_REG_RA], False) # is correct?
+                    jump_to(REGS[mips.MIPS_REG_RA], False)  # is correct?
             else:
                 jump_to(REGS[rs], True)
 
         case _:
             raise NotImplementedError(f"not yet: {insn}")
 
-def jump_to(address: int, calling = False):
+
+def jump_to(address: int, calling=False):
     if calling:
         # TODO: check GOT
         pass
@@ -341,6 +345,7 @@ def parse_operand(insn: CsInsn):
         else:
             raise ValueError("what?!")
 
+
 def dlloader(elffile, pointer_size):
     external_functions = {}
     dt_pltgot_addr = None
@@ -361,7 +366,7 @@ def dlloader(elffile, pointer_size):
             dt_mips_gotsym = tag.entry.d_val
         elif tag.entry.d_tag == 'DT_MIPS_SYMTABNO':
             dt_mips_symtabno = tag.entry.d_val
-    
+
     if not all(val is not None for val in [dt_pltgot_addr, dt_mips_local_gotno, dt_mips_gotsym, dt_mips_symtabno]):
         return external_functions
 
@@ -369,7 +374,8 @@ def dlloader(elffile, pointer_size):
     if not dynsym_section or not isinstance(dynsym_section, SymbolTableSection):
         return external_functions
 
-    global_got_entry_addr = dt_pltgot_addr + (dt_mips_local_gotno * pointer_size)
+    global_got_entry_addr = dt_pltgot_addr + \
+        (dt_mips_local_gotno * pointer_size)
     global_got_entries = dt_mips_symtabno - dt_mips_gotsym
 
     if global_got_entries < 0:
@@ -383,51 +389,54 @@ def dlloader(elffile, pointer_size):
             external_functions[current_got_entry_addr] = symbol.name
     return external_functions
 
+
 def get_symbol_table(elffile) -> dict[int, str]:
     got_function_map = {}
     dt_pltgot_addr = None
     pointer_size = elffile.elfclass // 8
     external_functions = dlloader(elffile, pointer_size)
-    
+
     if not external_functions:
         print("Not Found external functions")
 
     dynamic_section = elffile.get_section_by_name('.dynamic')
     if dynamic_section and isinstance(dynamic_section, DynamicSection):
-            for tag in dynamic_section.iter_tags():
-                if tag.entry.d_tag == 'DT_PLTGOT':
-                    dt_pltgot_addr = tag.entry.d_val
-                    break
+        for tag in dynamic_section.iter_tags():
+            if tag.entry.d_tag == 'DT_PLTGOT':
+                dt_pltgot_addr = tag.entry.d_val
+                break
 
     got_section_to_read = None
     if dt_pltgot_addr is not None:
         for section in elffile.iter_sections():
             if section.header['sh_addr'] <= dt_pltgot_addr < section.header['sh_addr'] + section.header['sh_size']:
                 got_section_to_read = section
-    
+
     if not got_section_to_read:
         got_section_to_read = elffile.get_section_by_name('.got')
         if not got_section_to_read:
             got_section_to_read = elffile.get_section_by_name('.got.plt')
 
-
     if got_section_to_read and isinstance(got_section_to_read, Section) and \
-        got_section_to_read.header['sh_type'] != 'SHT_NOBITS':
+            got_section_to_read.header['sh_type'] != 'SHT_NOBITS':
         section_data = got_section_to_read.data()
         num_entries = len(section_data) // pointer_size
 
         for i in range(num_entries):
             offset_in_section = i * pointer_size
-            entry_bytes = section_data[offset_in_section : offset_in_section + pointer_size]
-            
+            entry_bytes = section_data[offset_in_section:
+                                       offset_in_section + pointer_size]
+
             if len(entry_bytes) == pointer_size:
-                entry_address = got_section_to_read.header['sh_addr'] + offset_in_section
-                
+                entry_address = got_section_to_read.header['sh_addr'] + \
+                    offset_in_section
+
                 func_name = external_functions.get(entry_address, None)
                 got_function_map[entry_address] = func_name
             else:
                 continue
     return got_function_map
+
 
 def map_elf(uc: Uc, path: str):
     global global_table, main_address
@@ -444,8 +453,6 @@ def map_elf(uc: Uc, path: str):
                     break
         if not found_main:
             print("Is This stripped binary?")
-            
-
 
         # sp todo
 
