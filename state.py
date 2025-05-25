@@ -33,7 +33,12 @@ class Memory:
         self._mem = z3.Array("MEMORY", AddrSort, ValueSort)
 
     def load(self, addr):
-        return z3.Select(self._mem, addr)
+        value = z3.Select(self._mem, addr)
+        if z3.is_expr(value):
+            return z3.simplify(value)
+        return value
 
     def store(self, addr, value):
+        if z3.is_expr(value):
+            value = z3.simplify(value)
         self._mem = z3.Store(self._mem, addr, value)
