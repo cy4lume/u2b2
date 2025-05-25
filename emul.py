@@ -294,7 +294,8 @@ def handle_Jtype(insn: CsInsn):
             elif global_table.get(target_address) != None: # call dynamic library function
                 if hasattr(libc, global_table.get(target_address)):
                     func = getattr(libc, global_table.get(target_address))
-                    # TODO call func
+                    func(REGS, MEMORY)
+                    jump_to(REGS[mips.MIPS_REG_RA], False) # is correct?
             else:
                 jump_to(REGS[rs], True)
 

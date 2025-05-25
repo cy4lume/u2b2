@@ -13,24 +13,29 @@ def range_unroll(n, max_unroll=256):
 
 # mem allocations
 class Libc:
+    @staticmethod
     def malloc(size: BitVec)->BitVec:
         base = HEAP_BASE
         HEAP_BASE += simplify(size).as_long()
         return base
 
+    @staticmethod
     def calloc():
         pass
 
+    @staticmethod
     def realloc():
         pass
 
     # mem free
+    @staticmethod
     def free(regs: Registers, mem: Memory):
         ptr = regs[mips.MIPS_REG_A0]
         mem.pop(simplify(ptr).as_long(), None)
         return regs, mem
 
     # misc mem instr
+    @staticmethod
     def memcpy(regs: Registers, mem: Memory):
         dst = regs[mips.MIPS_REG_A0]
         src = regs[mips.MIPS_REG_A1]
@@ -46,6 +51,7 @@ class Libc:
 
         return new_regs, new_mem
 
+    @staticmethod
     def memset(regs: Registers, mem: Memory):
         s = regs[mips.MIPS_REG_A0]
         c = regs[mips.MIPS_REG_A1]
@@ -60,10 +66,13 @@ class Libc:
 
         return new_regs, new_mem
 
+    @staticmethod
     def memmove():
         pass
 
     # str operations
+
+    @staticmethod
     def strlen(regs: Registers, mem: Memory):
         pass
         """
@@ -76,204 +85,266 @@ class Libc:
         return new_regs, mem
         """
 
+    @staticmethod
     def strnlen():
         # TODO
         pass
 
+    @staticmethod
     def strcmp(regs: Registers, mem: Memory):
         # TODO
         pass
 
+    @staticmethod
     def strncmp():
         # TODO
         pass
 
+    @staticmethod
     def strchr():
         pass
 
+    @staticmethod
     def strrchr():
         pass
 
+    @staticmethod
     def strstr():
         pass
 
+    @staticmethod
     def strtok():
         pass
 
-    def strcpy():
-        # TODO
+    @staticmethod
+    def strcpy(regs: Registers, mem: Memory):
+        dst = regs[mips.MIPS_REG_A0]
+        src = regs[mips.MIPS_REG_A1]
         pass
 
+    @staticmethod
     def strncpy():
         # TODO
         pass
 
+    @staticmethod
     def sprintf():
         pass
 
+    @staticmethod
     def snprintf():
         pass
 
     # file
+    @staticmethod
     def open():
         # TODO
         pass
 
+    @staticmethod
     def close():
         # TODO
         pass
 
+    @staticmethod
     def read(regs: Registers, mem: Memory):
         # TODO
         pass
 
+    @staticmethod
     def write():
         # TODO
         pass
 
+    @staticmethod
     def lseek():
         pass
 
+    @staticmethod
     def stat():
         pass
 
+    @staticmethod
     def fopen():
         pass
 
+    @staticmethod
     def fclose():
         pass
 
+    @staticmethod
     def fread():
         pass
 
+    @staticmethod
     def fwrite():
         pass
 
+    @staticmethod
     def fseek():
         pass
 
+    @staticmethod
     def ftell():
         pass
 
+    @staticmethod
     def fflush():
         pass
 
+    @staticmethod
     def getchar():
         pass
 
+    @staticmethod
     def putchar():
         pass
 
+    @staticmethod
     def gets():
         pass
 
+    @staticmethod
     def fgets():
         pass
 
-    def puts():
-        pass
+    @staticmethod
+    def puts(regs: Registers, mem: Memory):
+        regs[mips.MIPS_REG_V0] = 1
+        return regs, mem
 
+    @staticmethod
     def printf():
         pass
 
+    @staticmethod
     def fprintf():
         pass
 
+    @staticmethod
     def scanf():
         pass
 
+    @staticmethod
     def sscanf():
         pass
 
     # process controls
+    @staticmethod
     def exit():
         # TODO
         pass
 
+    @staticmethod
     def abort():
         pass
 
+    @staticmethod
     def system():
         pass
 
+    @staticmethod
     def fork():
         pass
 
+    @staticmethod
     def execve():
         pass
 
+    @staticmethod
     def wait():
         pass
 
+    @staticmethod
     def kill():
         pass
 
     # time
+    @staticmethod
     def time():
         pass
 
+    @staticmethod
     def gettimeofday():
         pass
 
+    @staticmethod
     def clock():
         pass
 
     # pseudo-random
+    @staticmethod
     def rand():
         # TODO
         pass
 
+    @staticmethod
     def srand():
         # TODO
         pass
 
     # sorting / search
+    @staticmethod
     def qsort():
         pass
 
+    @staticmethod
     def bsearch():
         pass
 
     # typecasting
+    @staticmethod
     def atoi():
         # TODO
         pass
 
+    @staticmethod
     def atol():
         # TODO
         pass
 
+    @staticmethod
     def strtol():
         pass
 
+    @staticmethod
     def strtod():
         pass
 
     # math
+    @staticmethod
     def sin():
         pass
 
+    @staticmethod
     def cos():
         pass
 
+    @staticmethod
     def tan():
         pass
 
+    @staticmethod
     def exp():
         pass
 
+    @staticmethod
     def log():
         pass
 
+    @staticmethod
     def pow():
         pass
 
+    @staticmethod
     def sqrt():
         pass
 
+    @staticmethod
     def ceil():
         pass
 
+    @staticmethod
     def floor():
         pass
 

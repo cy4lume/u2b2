@@ -18,6 +18,11 @@ class Registers:
             return
         self._regs[idx] = value
 
+    def copy(self):
+        new_regs = Registers()
+        new_regs._regs = list(self._regs)
+        return new_regs
+
 
 AddrSort = z3.BitVecSort(32)
 ValueSort = z3.BitVecSort(32)
