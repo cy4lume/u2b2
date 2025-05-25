@@ -229,6 +229,12 @@ def handle_Itype(insn: CsInsn):
                 jump_to(pc)
             else:
                 jump_to(insn.address + 4)
+        case mips.MIPS_INS_BEQZ:
+            rs, pc = operands
+            if bool_proxy(REGS[rs] == 0):
+                jump_to(pc)
+            else:
+                jump_to(insn.address + 4)
 
         # actually not I-type, but for convenience
         case mips.MIPS_INS_SLL:
