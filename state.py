@@ -1,21 +1,38 @@
 import capstone.mips_const as mips
 import z3
 
+REG_NAMES = [
+    "zero", "at", "v0", "v1", "a0", "a1", "a2", "a3",
+    "t0", "t1", "t2", "t3", "t4", "t5", "t6", "t7",
+    "s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7",
+    "t8", "t9", "k0", "k1", "gp", "sp", "fp", "ra"
+]
+
 
 class Registers:
     def __init__(self):
-        self._regs = [z3.BitVec(f"REG{i}", 32) for i in range(256)]
-        self._regs[mips.MIPS_REG_ZERO]
+        # $0 -> 2번... 2씩 밀려 있음
+        self._regs = {
+            i+2: z3.BitVec(f"${REG_NAMES[i]}", 32) for i in range(32)}
+        self._regs[mips.MIPS_REG_ZERO] = 0
+        self._regs[mips.MIPS_REG_HI] = z3.BitVec("$hi", 32)
+        self._regs[mips.MIPS_REG_LO] = z3.BitVec("$lo", 32)
 
     def __getitem__(self, idx: int):
         if idx == mips.MIPS_REG_ZERO:
             return 0
-        return self._regs[idx]
+        reg = self._regs.get(idx)
+        if reg == None:
+            raise IndexError(f"REG INDEX [{idx}] Not Supported")
+        return reg
 
     def __setitem__(self, idx: int, value):
         if idx == mips.MIPS_REG_ZERO:
             self._regs[idx] = 0
             return
+        reg = self._regs.get(idx)
+        if reg == None:
+            raise IndexError(f"REG INDEX [{idx}] Not Supported")
         self._regs[idx] = value
 
     def copy(self):
