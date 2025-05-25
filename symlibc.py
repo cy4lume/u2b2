@@ -8,7 +8,9 @@ HEAP_BASE = 0x10000000
 
 
 def range_unroll(n, max_unroll=256):
-    if isinstance(n, BitVecNumRef):
+    if isinstance(n, int):
+        return list(range(n))
+    elif isinstance(n, BitVecNumRef):
         return list(range(n.as_long()))
     else:
         return list(range(max_unroll))

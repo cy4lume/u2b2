@@ -1,5 +1,7 @@
 import capstone.mips_const as mips
 from enum import Enum
+
+import z3
 from state import Memory, Registers
 
 
@@ -362,6 +364,9 @@ SYSCALL_HANDLERS = {
 }
 
 def get_syscall_handler(syscall_type):
+    if isinstance(syscall_type, z3.BitVecNumRef):
+        syscall_type = syscall_type.as_long()
+        
     if not isinstance(syscall_type, int):
         return None
 
