@@ -1,7 +1,8 @@
 import capstone.mips_const as mips
 from enum import Enum
-
 import z3
+
+from exceptions import EmulatorStop
 from state import Memory, Registers
 
 
@@ -356,17 +357,18 @@ class MipsSyscall(Enum):
 
 def handle_sys_exit(regs: Registers, mem: Memory):
     status_code = regs[mips.MIPS_REG_A0]
-    raise Exception(f"Exit with [{status_code}] by syscall")
+    raise EmulatorStop(f"Exit with [{status_code}] by syscall")
 
 
 SYSCALL_HANDLERS = {
     MipsSyscall.exit: handle_sys_exit
 }
 
+
 def get_syscall_handler(syscall_type):
     if isinstance(syscall_type, z3.BitVecNumRef):
         syscall_type = syscall_type.as_long()
-        
+
     if not isinstance(syscall_type, int):
         return None
 

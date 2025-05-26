@@ -1,0 +1,3 @@
+
+class EmulatorStop(Exception):
+    pass
