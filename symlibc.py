@@ -225,7 +225,7 @@ class Libc:
             elif isinstance(data, int):
                 pass
             else:
-                s += f"[[{data}]]".encode()
+                s += f"[[ z3: {data} ]]".encode()
                 break
 
             data = int.to_bytes(data, 4, "little")
@@ -236,8 +236,8 @@ class Libc:
                 s += data
 
             index += 4
-        print(s.decode())
-        regs[mips.MIPS_REG_V0] = len(s)
+        print("Stdout:", s.decode() + "\n")
+        regs[mips.MIPS_REG_V0] = len(s) + 1
         return regs, mem
 
     @staticmethod
@@ -321,8 +321,9 @@ class Libc:
 
     # typecasting
     @staticmethod
-    def atoi():
+    def atoi(regs, mem):
         # TODO
+        # print(regs[mips.MIPS_REG_A0])
         pass
 
     @staticmethod
