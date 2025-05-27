@@ -88,6 +88,8 @@ def get_unexecuted_ranges(start, end, executed_addrs):
 
 class Mips32Emulator:
     def __init__(self, path: str, verbose: bool):
+        self.elf = None
+        self.debug = False
         self.verbose = verbose
 
         uc = Uc(UC_ARCH_MIPS, UC_MODE_MIPS32 | UC_MODE_BIG_ENDIAN)
@@ -112,81 +114,83 @@ class Mips32Emulator:
         uc.hook_add(UC_HOOK_CODE, self.hook_instr)
 
     def read_elf(self, path: str):
-        with open(path, "rb") as f:
-            elf = ELFFile(f)
-            memory = Memory()
-            uc = self.uc
+        self.elf = ELFFile(open(path, "rb"))
+        for i in self.elf.get_dwarf_info().iter_CUs():
+            self.debug = True
+            break
+        memory = Memory()
+        uc = self.uc
 
-            self.global_table = get_symbol_table(elf)
-            found_main = False
-            for symbol in elf.get_section_by_name('.symtab').iter_symbols():
-                if symbol.name == 'main':
-                    if symbol['st_info']['type'] == 'STT_FUNC':
-                        self.main_address = symbol['st_value']
-                        found_main = True
-
+        self.global_table = get_symbol_table(self.elf)
+        found_main = False
+        for symbol in self.elf.get_section_by_name('.symtab').iter_symbols():
+            if symbol.name == 'main':
                 if symbol['st_info']['type'] == 'STT_FUNC':
-                    start = symbol['st_value']
-                    size = symbol['st_size']
-                    end = start + size
+                    self.main_address = symbol['st_value']
+                    found_main = True
 
-                    if size == 0 or symbol.name in EXCLUDE_FUNCS:
-                        continue
+            if symbol['st_info']['type'] == 'STT_FUNC':
+                start = symbol['st_value']
+                size = symbol['st_size']
+                end = start + size
 
-                    self.functions.append({
-                        'name': symbol.name,
-                        'start': start,
-                        'end': end,
-                        'dead': [],
-                        'executed': False
-                    })
-            if not found_main:
-                print("Is This stripped binary?")
-
-            # sp todo
-
-            got_ranges = []
-            for sec in elf.iter_sections():
-                if sec.name.startswith('.got'):
-                    start = sec['sh_addr']
-                    end = start + sec['sh_size']
-                    got_ranges.append((start, end))
-
-            def in_got(addr):
-                return any(start <= addr < end for start, end in got_ranges)
-
-            for seg in elf.iter_segments():
-                if seg["p_type"] != "PT_LOAD":
+                if size == 0 or symbol.name in EXCLUDE_FUNCS:
                     continue
 
-                vaddr = seg["p_vaddr"]
-                memsz = seg["p_memsz"]
-                filesz = seg["p_filesz"]
-                data = seg.data()
+                self.functions.append({
+                    'name': symbol.name,
+                    'start': start,
+                    'end': end,
+                    'dead': [],
+                    'executed': False
+                })
+        if not found_main:
+            print("Is This stripped binary?")
 
-                base = align_down(vaddr)
-                top = align_up(vaddr + memsz)
-                size = top - base
+        # sp todo
 
-                uc.mem_map(base, size, UC_PROT_READ |
-                           UC_PROT_WRITE | UC_PROT_EXEC)
+        got_ranges = []
+        for sec in self.elf.iter_sections():
+            if sec.name.startswith('.got'):
+                start = sec['sh_addr']
+                end = start + sec['sh_size']
+                got_ranges.append((start, end))
 
-                # Write in memory
-                for addr in range(vaddr, vaddr + memsz, 4):
-                    if in_got(addr):  # ignore got sections
-                        continue
-                    offset = addr - vaddr
-                    seg = data[offset:offset+4]
-                    if len(seg) == 0:
-                        seg = b"\x00" * 4
-                    memory.store(addr, int.from_bytes(seg, "little"))
+        def in_got(addr):
+            return any(start <= addr < end for start, end in got_ranges)
 
-                uc.mem_write(vaddr, data)
-                if memsz > filesz:
-                    uc.mem_write(
-                        vaddr + filesz, b"\x00" * (memsz - filesz))
+        for seg in self.elf.iter_segments():
+            if seg["p_type"] != "PT_LOAD":
+                continue
 
-        return (elf.header["e_entry"], memory)
+            vaddr = seg["p_vaddr"]
+            memsz = seg["p_memsz"]
+            filesz = seg["p_filesz"]
+            data = seg.data()
+
+            base = align_down(vaddr)
+            top = align_up(vaddr + memsz)
+            size = top - base
+
+            uc.mem_map(base, size, UC_PROT_READ |
+                        UC_PROT_WRITE | UC_PROT_EXEC)
+
+            # Write in memory
+            for addr in range(vaddr, vaddr + memsz, 4):
+                if in_got(addr):  # ignore got sections
+                    continue
+                offset = addr - vaddr
+                seg = data[offset:offset+4]
+                if len(seg) == 0:
+                    seg = b"\x00" * 4
+                memory.store(addr, int.from_bytes(seg, "little"))
+
+            uc.mem_write(vaddr, data)
+            if memsz > filesz:
+                uc.mem_write(
+                    vaddr + filesz, b"\x00" * (memsz - filesz))
+
+        return (self.elf.header["e_entry"], memory)
 
     def hook_instr(self, uc: Uc, address: int, size: int, user_data):
         if self.type == "trace":
@@ -483,6 +487,18 @@ class Mips32Emulator:
         terms.append(True)
         conditions.append(z3.simplify(term))
         return True
+    
+    def get_lineno_by_address(self, addr):
+        dwarf_info = self.elf.get_dwarf_info()
+        for cu in dwarf_info.iter_CUs():
+            line = 1
+            for entry in dwarf_info.line_program_for_CU(cu).get_entries():
+                if entry.state:
+                    if addr > entry.state.address:
+                        line = entry.state.line
+                    else:
+                        return line
+
 
     def symbolic(self, func_addr_start) -> list[z3.ModelRef]:
         self.type = "run"
@@ -588,6 +604,14 @@ class Mips32Emulator:
                     insn_bytes = uc.mem_read(addr, 4)
                     for insn in md.disasm(insn_bytes, addr):
                         print(f"    0x{addr:08x} {insn.mnemonic} {insn.op_str}")
+                if self.debug:
+                    print(f"  Dead line Number:")
+                    lineno = []
+                    for addr in f['dead']:
+                        lineno.append(self.get_lineno_by_address(addr))
+                    lineno = list(set(lineno)) # To delete duplicated element
+                    if lineno:
+                        print("  ", ", ".join([str(i) for i in lineno]))
             else:
                 print("    No dead instructions")
 
