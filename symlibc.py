@@ -5,8 +5,24 @@ import syscall
 
 HEAP_BASE = 0x10000000
 
+PTR_WIDTH = 0x20
+PTRDIFF_MAX = 0x7FFFFFFF
+
+
 # some helper functions
 
+# typecasting
+def to_uint32(x):
+    if isinstance(x, int):
+        return x & 0xFFFFFFFF
+    elif isinstance(x, (BitVecNumRef, BitVecRef)):
+        w = x.size()
+        if w == 32:
+            return ZeroExt(32-w, x)
+        else:
+            return Extract(31, 0, x)
+    
+    raise TypeError(f"Type not supported {type(x)}")
 
 def range_unroll(n, max_unroll=256):
     if isinstance(n, int):
@@ -16,19 +32,30 @@ def range_unroll(n, max_unroll=256):
     else:
         return list(range(max_unroll))
 
-# mem allocations
-
 
 class Libc:
+# mem allocations
     @staticmethod
-    def malloc(regs: Registers, mem: Memory) -> BitVec:
-        global HEAP_BASE
+    def malloc(regs: Registers, mem: Memory):
+        global HEAP_BASE, PTRDIFF_MAX, PTR_WIDTH
         size = regs[mips.MIPS_REG_A0]
         base = HEAP_BASE
-        HEAP_BASE += simplify(size).as_long()
 
-        regs[mips.MIPS_REG_V0] = base
-        return regs, mem
+        if isinstance(size, BitVecNumRef):
+            size = size.as_long()
+
+        size = to_uint32(size)
+        HEAP_BASE += size
+
+        # sym_slot = BitVec("mem_%x" % base, 32)
+
+        # cond = Or(sym_slot == BitVecVal(0, 32), sym_slot == base)
+        regs[mips.MIPS_REG_V0] = base#sym_slot
+        
+        # symval = BitVec("mem_%x" % base, 32)
+        mem.store(base, 0) #BitVec(0, 32))#symval)
+
+        return regs, mem #, cond
 
     @staticmethod
     def calloc(regs: Registers, mem: Memory):
