@@ -348,7 +348,7 @@ class Mips32Emulator:
                     self.jump_to(insn.address + 4)
             case mips.MIPS_INS_BLTZ:
                 rs, pc = operands
-                if self.bool_proxy(RESG[rs] < 0):
+                if self.bool_proxy(REGS[rs] < 0):
                     self.jump_to(pc)
                 else:
                     self.jump_to(insn.address + 4)
@@ -483,8 +483,6 @@ class Mips32Emulator:
             return False
 
         if self.type == "trace":
-            print(self.type)
-            print(term)
             raise ValueError("symbol while tracing")
 
         terms, conditions = self.terms, self.conditions
