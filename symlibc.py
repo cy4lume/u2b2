@@ -22,6 +22,7 @@ def range_unroll(n, max_unroll=256):
 class Libc:
     @staticmethod
     def malloc(regs: Registers, mem: Memory) -> BitVec:
+        global HEAP_BASE
         size = regs[mips.MIPS_REG_A0]
         base = HEAP_BASE
         HEAP_BASE += simplify(size).as_long()
@@ -31,6 +32,7 @@ class Libc:
 
     @staticmethod
     def calloc(regs: Registers, mem: Memory):
+        global HEAP_BASE
         nmemb = regs[mips.MIPS_REG_A0]
         size = regs[mips.MIPS_REG_A1]
 
