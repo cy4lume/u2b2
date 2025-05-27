@@ -340,6 +340,30 @@ class Mips32Emulator:
                     self.jump_to(pc)
                 else:
                     self.jump_to(insn.address + 4)
+            case mips.MIPS_INS_BLEZ:
+                rs, pc = operands
+                if self.bool_proxy(REGS[rs] <= 0):
+                    self.jump_to(pc)
+                else:
+                    self.jump_to(insn.address + 4)
+            case mips.MIPS_INS_BLTZ:
+                rs, pc = operands
+                if self.bool_proxy(RESG[rs] < 0):
+                    self.jump_to(pc)
+                else:
+                    self.jump_to(insn.address + 4)
+            case mips.MIPS_INS_BGEZ:
+                rs, pc = operands
+                if self.bool_proxy(REGS[rs] >= 0):
+                    self.jump_to(pc)
+                else:
+                    self.jump_to(insn.address + 4)
+            case mips.MIPS_INS_BGTZ:
+                rs, pc = operands
+                if self.bool_proxy(REGS[rs] > 0):
+                    self.jump_to(pc)
+                else:
+                    self.jump_to(insn.address + 4)
 
             # actually not I-type, but for convenience
             case mips.MIPS_INS_SLL:
@@ -420,9 +444,11 @@ class Mips32Emulator:
                 # call dynamic library function
                 elif self.global_table.get(target_address) != None:
                     if hasattr(libc, self.global_table.get(target_address)):
+                        func_name = self.global_table.get(target_address)
                         func = getattr(
-                            libc, self.global_table.get(target_address))
+                            libc, func_name)
                         func(REGS, MEMORY)
+                            
                         self.jump_to(REGS[mips.MIPS_REG_RA],
                                      False)  # is correct?
                 else:
@@ -457,6 +483,8 @@ class Mips32Emulator:
             return False
 
         if self.type == "trace":
+            print(self.type)
+            print(term)
             raise ValueError("symbol while tracing")
 
         terms, conditions = self.terms, self.conditions
