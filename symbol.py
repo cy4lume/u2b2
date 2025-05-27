@@ -150,9 +150,6 @@ class LibcSym:
                 uc.mem_write(vaddr + LIBC_BASE + filesz,
                             b"\x00" * (memsz - filesz))
 
-            print(hex(dynsym.get_symbol_by_name('malloc')[0]['st_value']))
-            print(dynsym)
-    
     def get(self, fn: str)->int:
         # get libc function's vma
         rva = self.dynsym.get(fn)

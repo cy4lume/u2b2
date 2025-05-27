@@ -27,7 +27,7 @@ import z3
 
 from exceptions import EmulatorStop
 from state import Memory, Registers
-from symbol import get_symbol_table
+from symbol import get_symbol_table, LibcSym
 from symlibc import Libc as libc
 from syscall import get_syscall_handler, handle_sys_exit
 
@@ -108,6 +108,7 @@ class Mips32Emulator:
         self.functions = []
 
         self.entry, self.memory_init = self.read_elf(path)
+        self.libc = LibcSym(self.uc, "./libs/mips-linux-gnu/lib")
 
         uc.mem_map(align_down(STACK_TOP - STACK_SIZE),
                    STACK_SIZE, UC_PROT_READ | UC_PROT_WRITE)
