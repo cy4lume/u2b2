@@ -1,6 +1,7 @@
 from z3 import *
 import capstone.mips_const as mips
 from state import Memory, Registers
+import syscall
 
 HEAP_BASE = 0x10000000
 
@@ -20,14 +21,24 @@ def range_unroll(n, max_unroll=256):
 
 class Libc:
     @staticmethod
-    def malloc(size: BitVec) -> BitVec:
+    def malloc(regs: Registers, mem: Memory) -> BitVec:
+        size = regs[mips.MIPS_REG_A0]
         base = HEAP_BASE
         HEAP_BASE += simplify(size).as_long()
-        return base
+
+        regs[mips.MIPS_REG_V0] = base
+        return regs, mem
 
     @staticmethod
-    def calloc():
-        pass
+    def calloc(regs: Registers, mem: Memory):
+        nmemb = regs[mips.MIPS_REG_A0]
+        size = regs[mips.MIPS_REG_A1]
+
+        base = HEAP_BASE
+        HEAP_BASE += simplify(nmemb * size) # how to convert to ..
+        
+        regs[mips.MIPS_REG_V0] = base
+        return regs, mem
 
     @staticmethod
     def realloc():
@@ -37,7 +48,7 @@ class Libc:
     @staticmethod
     def free(regs: Registers, mem: Memory):
         ptr = regs[mips.MIPS_REG_A0]
-        mem.pop(simplify(ptr).as_long(), None)
+        mem._mem.pop(simplify(ptr).as_long(), None)
         return regs, mem
 
     # misc mem instr
@@ -68,7 +79,7 @@ class Libc:
             new_mem = Store(new_mem, s + i, c)
 
         new_regs = regs.copy()
-        new_regs[mips.MIPS_REG_V0] = s1
+        new_regs[mips.MIPS_REG_V0] = s
 
         return new_regs, new_mem
 
@@ -258,9 +269,8 @@ class Libc:
 
     # process controls
     @staticmethod
-    def exit():
-        # TODO
-        pass
+    def exit(regs: Registers, mem: Memory):
+        syscall.handle_sys_exit(regs, mem)
 
     @staticmethod
     def abort():
