@@ -490,7 +490,7 @@ class Mips32Emulator:
                         func_name = self.global_table.get(target_address)
                         func = getattr(
                             libc, func_name)
-                        if self.type == "symbolic":
+                        if self.type == "run":
                             func(REGS, MEMORY)
 
                             self.jump_to(REGS[mips.MIPS_REG_RA],
@@ -521,7 +521,7 @@ class Mips32Emulator:
         uc = self.uc
         REGS, MEMORY = self.regs, self.memory
 
-        if calling:
+        if calling: # needs fix to call libc
             # TODO: check GOT
             pass
         if address == MAGIC_RETURN:
