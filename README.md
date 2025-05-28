@@ -10,7 +10,7 @@ or
 `mips-linux-gnu-gcc -march=mips32 -mabi=32 -EB test_func.c -o test_func.elf`
 
 ## Compatibility
-Supported Architecture  : 32-bit, MIPS (MIPS32)
+Supported Architecture  : 32-bit, Big Endian, MIPS (MIPS32)
 
 Supported Platform      : Linux
 
