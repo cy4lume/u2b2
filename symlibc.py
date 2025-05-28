@@ -144,30 +144,31 @@ class Libc:
     @staticmethod
     def strncmp(regs: Registers, mem: Memory):
         # TODO
-        # str1 = regs[mips.MIPS_REG_A0]
-        # str2 = regs[mips.MIPS_REG_A1]
-        # print(str1, str2)
-        # n = regs[mips.MIPS_REG_A2]
-        # if isinstance(n, int):
-        #     pass
-        # elif isinstance(n, z3.BitVecNumRef):
-        #     n = n.as_long()
-        # else:
-        #     raise ValueError(f"strncmp n={n} not yet supported")
-        
-        # assert n % 4 == 0, "sorry"
-        
-        # conds = []
-        # for i in range(n):
-        #     c1 = mem.load(str1 + 4 * n)
-        #     c2 = mem.load(str2 + 4 * n)
-        #     conds.append(z3.If(c1 < c2, -1, z3.If(c1 > c2, 1, 0)))
+        str1 = regs[mips.MIPS_REG_A0]
+        str2 = regs[mips.MIPS_REG_A1]
 
-        # acc = 0
-        # for cond in reversed(conds):
-            # acc = z3.simplify(z3.If(cond != 0, cond, acc))
+        n = regs[mips.MIPS_REG_A2]
+        if isinstance(n, int):
+            pass
+        elif isinstance(n, z3.BitVecNumRef):
+            n = n.as_long()
+        else:
+            raise ValueError(f"strncmp n={n} not yet supported")
+        
+        assert n % 4 == 0, "sorry"
+        
+        conds = []
+        for i in range(n):
+            c1 = mem.load(str1 + 4 * n)
+            c2 = mem.load(str2 + 4 * n)
+            conds.append(z3.If(c1 < c2, -1, z3.If(c1 > c2, 1, 0)))
 
-        regs[mips.MIPS_REG_V0] = z3.Or(-1 ,0, 1)
+        acc = 0
+        for cond in reversed(conds):
+            acc = z3.simplify(z3.If(cond != 0, cond, acc))
+
+        # regs[mips.MIPS_REG_V0] = z3.Or(-1 ,0, 1)
+        regs[mips.MIPS_REG_V0] = acc
 
         return regs, mem
 
