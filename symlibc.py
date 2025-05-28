@@ -64,9 +64,19 @@ class Libc:
         size = regs[mips.MIPS_REG_A1]
 
         base = HEAP_BASE
-        HEAP_BASE += simplify(nmemb * size) # how to convert to ..
+
+        if isinstance(size, BitVecNumRef):
+            size = size.as_long()
         
+        if isinstance(nmemb, BitVecNumRef):
+            nmemb = nmemb.as_long()
+        
+        size = to_uint32(size)
+        HEAP_BASE += (nmemb * size)
+        
+        mem.store(base, 0)
         regs[mips.MIPS_REG_V0] = base
+
         return regs, mem
 
     @staticmethod
