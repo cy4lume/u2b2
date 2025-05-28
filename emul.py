@@ -80,6 +80,7 @@ def extract_array_store(model, expr):
         default = 0
     return result, default
 
+
 def get_unexecuted_ranges(start, end, executed_addrs):
     unexec = [addr for addr in range(start, end) if addr not in executed_addrs]
     ranges = []
@@ -89,6 +90,7 @@ def get_unexecuted_ranges(start, end, executed_addrs):
         else:
             ranges[-1][1] = addr
     return ranges
+
 
 class Mips32Emulator:
     def __init__(self, path: str, verbose: bool):
@@ -178,7 +180,7 @@ class Mips32Emulator:
             size = top - base
 
             uc.mem_map(base, size, UC_PROT_READ |
-                        UC_PROT_WRITE | UC_PROT_EXEC)
+                       UC_PROT_WRITE | UC_PROT_EXEC)
 
             # Write in memory
             for addr in range(vaddr, vaddr + memsz, 4):
@@ -194,9 +196,10 @@ class Mips32Emulator:
             if memsz > filesz:
                 uc.mem_write(
                     vaddr + filesz, b"\x00" * (memsz - filesz))
-            
+
             for arg_i in range(MAX_ARGC):
-                memory.store(STACK_TOP - 4 * (MAX_ARGC - arg_i), MAGIC_ARG + MAX_ARG_LEN * arg_i)
+                memory.store(STACK_TOP - 4 * (MAX_ARGC - arg_i),
+                             MAGIC_ARG + MAX_ARG_LEN * arg_i)
 
         return (self.elf.header["e_entry"], memory)
 
@@ -442,12 +445,19 @@ class Mips32Emulator:
                 # call __libc_start_main
                 if self.global_table.get(target_address) != None and self.global_table.get(target_address) == "__libc_start_main":
                     REGS[mips.MIPS_REG_RA] = MAGIC_RETURN  # main return
+
+                    # $a0 -> argc; $a1 -> argv -> stack; $a2 -> envp -> skip now...
                     if self.type == "run":
                         REGS[mips.MIPS_REG_A0] = z3.BitVec("$a0", 32)
-                        REGS[mips.MIPS_REG_A1] = z3.BitVec("$a1", 32)
-                        REGS[mips.MIPS_REG_A2] = z3.BitVec("$a2", 32)
+                        REGS[mips.MIPS_REG_A1] = STACK_TOP - 4 * MAX_ARGC
+                        REGS[mips.MIPS_REG_A2] = 0
                     elif self.type == "trace":
-                        REGS[mips.MIPS_REG_A0], REGS[mips.MIPS_REG_A1], REGS[mips.MIPS_REG_A2] = self.args
+                        argc,  = self.args
+                        argv = STACK_TOP - 4 * MAX_ARGC
+                        envp = 0
+                        REGS[mips.MIPS_REG_A0] = argc
+                        REGS[mips.MIPS_REG_A1], REGS[mips.MIPS_REG_A2] = argv, 0
+
                     self.jump_to(self.main_address, False)
                 # call dynamic library function
                 elif self.global_table.get(target_address) != None:
@@ -455,8 +465,9 @@ class Mips32Emulator:
                         func_name = self.global_table.get(target_address)
                         func = getattr(
                             libc, func_name)
+
                         func(REGS, MEMORY)
-                            
+
                         self.jump_to(REGS[mips.MIPS_REG_RA],
                                      False)  # is correct?
                 else:
@@ -521,7 +532,7 @@ class Mips32Emulator:
         terms.append(True)
         conditions.append(z3.simplify(term))
         return True
-    
+
     def get_lineno_by_address(self, addr):
         dwarf_info = self.elf.get_dwarf_info()
         for cu in dwarf_info.iter_CUs():
@@ -532,7 +543,6 @@ class Mips32Emulator:
                         line = entry.state.line
                     else:
                         return line
-
 
     def symbolic(self, func_addr_start) -> list[z3.ModelRef]:
         self.type = "run"
@@ -575,7 +585,7 @@ class Mips32Emulator:
         self.args = []
         for reg_id, value in regs:
             self.regs[reg_id] = value
-            if reg_id in (mips.MIPS_REG_A0, mips.MIPS_REG_A1, mips.MIPS_REG_A2):
+            if reg_id in (mips.MIPS_REG_A0,):
                 self.args.append(value)
 
         self.memory = deepcopy(self.memory_init)
@@ -583,6 +593,9 @@ class Mips32Emulator:
             self.memory.store(addr, val)
 
         for addr in range(align_down(STACK_TOP - STACK_SIZE), STACK_TOP - 4 * MAX_ARGC, 4):
+            self.memory.store(addr, mem[1])
+
+        for addr in range(MAGIC_ARG, MAGIC_ARG + MAX_ARGC * MAX_ARG_LEN, 4):
             self.memory.store(addr, mem[1])
 
         self.regs[mips.MIPS_REG_SP] = STACK_TOP - 4 * MAX_ARGC
@@ -639,18 +652,18 @@ class Mips32Emulator:
                 for addr in f['dead']:
                     insn_bytes = uc.mem_read(addr, 4)
                     for insn in md.disasm(insn_bytes, addr):
-                        print(f"    0x{addr:08x} {insn.mnemonic} {insn.op_str}")
+                        print(
+                            f"    0x{addr:08x} {insn.mnemonic} {insn.op_str}")
                 if self.debug:
                     print(f"  Dead line Number:")
                     lineno = []
                     for addr in f['dead']:
                         lineno.append(self.get_lineno_by_address(addr))
-                    lineno = list(set(lineno)) # To delete duplicated element
+                    lineno = list(set(lineno))  # To delete duplicated element
                     if lineno:
                         print("  ", ", ".join([str(i) for i in lineno]))
             else:
                 print("    No dead instructions")
-
 
 
 if __name__ == "__main__":

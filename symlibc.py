@@ -155,12 +155,12 @@ class Libc:
         else:
             raise ValueError(f"strncmp n={n} not yet supported")
         
-        assert n % 4 == 0, "sorry"
+        assert n % 4 == 0, "sorry" # todo...
         
         conds = []
-        for i in range(n):
-            c1 = mem.load(str1 + 4 * n)
-            c2 = mem.load(str2 + 4 * n)
+        for i in range(n // 4):
+            c1 = mem.load(str1 + 4 * i)
+            c2 = mem.load(str2 + 4 * i)
             conds.append(z3.If(c1 < c2, -1, z3.If(c1 > c2, 1, 0)))
 
         acc = 0
