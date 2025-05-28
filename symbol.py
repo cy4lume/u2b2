@@ -16,7 +16,7 @@ import os
 
 
 PAGE_SIZE = 0x1000
-LIBC_BASE = 0x7F000000
+LIBC_BASE = 0x00000000
 
 def align_down(addr, align=PAGE_SIZE):
     return addr & ~(align - 1)
@@ -118,7 +118,7 @@ def get_symbol_table(elffile) -> dict[int, str]:
     return got_function_map
 
 class LibcSym:
-    def __init__(self, uc, path):
+    def __init__(self, uc: Uc, path):
         libc_path = os.path.join(path, "libc.so.6")
 
         f = open(libc_path, "rb")

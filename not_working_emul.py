@@ -116,7 +116,6 @@ class Mips32Emulator:
         self.entry, self.memory_init = self.read_elf(path)
         
         self.libc = LibcSym(self.uc, "./libs/mips-linux-gnu/lib")
-        uc.mem_map(0, 0x400000, UC_PROT_READ | UC_PROT_WRITE | UC_PROT_EXEC)
         uc.reg_write(UC_MIPS_REG_T4, 0x300000)
 
         uc.mem_map(align_down(STACK_TOP - STACK_SIZE),
@@ -203,9 +202,19 @@ class Mips32Emulator:
         return (self.elf.header["e_entry"], memory)
 
     def hook_instr(self, uc: Uc, address: int, size: int, user_data):
-        print(f"EXEC @ PC=0x{address:08x}")
+        # print(f"EXEC @ PC=0x{address:08x}")
         if self.type == "trace":
             self.coverage.add(address)
+
+        if len(self.libcret) != 0:
+            insn_bytes = uc.mem_read(address, size)
+            print(next(self.md.disasm(insn_bytes, address)))
+            print(hex(uc.reg_read(mips.MIPS_REG_V1)))
+
+            if self.libcret[-1] != address:
+                return
+            else:
+                self.libcret.pop()
 
         md = self.md
         uc.reg_write(UC_MIPS_REG_PC, address + 4)
@@ -236,11 +245,7 @@ class Mips32Emulator:
         REGS = self.regs
         MEMORY = self.memory
 
-        if self.libcret != []:
-            if self.libcret[-1] != insn.address:
-                return
-            else:
-                self.libcret.pop()
+        
 
         operands = list(parse_operand(insn))
 
@@ -497,10 +502,9 @@ class Mips32Emulator:
                                      False)  # is correct?
                         elif self.type == "trace":
                             self.libcret.append(REGS[mips.MIPS_REG_RA])
-                            print(self.uc.mem_read(REGS[mips.MIPS_REG_A0], 32))
-                            input()
                             self.uc.reg_write(UC_MIPS_REG_RA, insn.address + 8)
                             self.uc.reg_write(UC_MIPS_REG_PC, self.libc.get(func_name))
+                            self.uc.reg_write(mips.MIPS_REG_T9, self.libc.get(func_name))
                 else:
                     if self.type == "trace":
                         self.jump_to(REGS[mips.MIPS_REG_RA], True)
