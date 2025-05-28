@@ -8,7 +8,8 @@ HEAP_BASE = 0x10000000
 PTR_WIDTH = 0x20
 PTRDIFF_MAX = 0x7FFFFFFF
 
-
+free_list = []
+alloc_sizes = {}
 # some helper functions
 
 # typecasting
@@ -24,6 +25,7 @@ def to_uint32(x):
     
     raise TypeError(f"Type not supported {type(x)}")
 
+# symbol unrolling
 def range_unroll(n, max_unroll=256):
     if isinstance(n, int):
         return list(range(n))
@@ -36,30 +38,44 @@ def range_unroll(n, max_unroll=256):
 class Libc:
 # mem allocations
     @staticmethod
-    def malloc(regs: Registers, mem: Memory):
-        global HEAP_BASE, PTRDIFF_MAX, PTR_WIDTH
+    def malloc(regs: Registers, mem: Memory, tp: str):
+        global HEAP_BASE, PTR_WIDTH, PTRDIFF_MAX, alloc_sizes
         size = regs[mips.MIPS_REG_A0]
         base = HEAP_BASE
 
         if isinstance(size, BitVecNumRef):
-            size = size.as_long()
+            size = simplify(size).as_long()
 
+            
         size = to_uint32(size)
+
+        if size > PTRDIFF_MAX:
+            regs[mips.MIPS_REG_V0] = 0
+            return regs, mem, (BitVecVal(0, PTR_WIDTH) == BitVec("malloc_null", PTR_WIDTH))
+
         HEAP_BASE += size
 
-        # sym_slot = BitVec("mem_%x" % base, 32)
+        if tp == "run":
+            alloc_sizes[base] = size
+            sym_slot = BitVec("mem_%x" % base, PTR_WIDTH)
 
-        # cond = Or(sym_slot == BitVecVal(0, 32), sym_slot == base)
-        regs[mips.MIPS_REG_V0] = base#sym_slot
-        
-        # symval = BitVec("mem_%x" % base, 32)
-        mem.store(base, 0) #BitVec(0, 32))#symval)
+            regs[mips.MIPS_REG_V0] = sym_slot
+            mem.store(base, sym_slot)
 
-        return regs, mem #, cond
+            return regs, mem
+        elif tp == "trace":
+            alloc_sizes[base] = size
+            regs[mips.MIPS_REG_V0] = base
+            mem.store(base, 0)
+
+            return regs, mem
+    
+        else:
+            raise TypeError(f"execution type {type(tp)} not supported")
 
     @staticmethod
-    def calloc(regs: Registers, mem: Memory):
-        global HEAP_BASE
+    def calloc(regs: Registers, mem: Memory, tp: str):
+        global HEAP_BASE, PTRDIFF_MAX, alloc_sizes
         nmemb = regs[mips.MIPS_REG_A0]
         size = regs[mips.MIPS_REG_A1]
 
@@ -72,9 +88,19 @@ class Libc:
             nmemb = nmemb.as_long()
         
         size = to_uint32(size)
-        HEAP_BASE += (nmemb * size)
+        nmemb = to_uint32(nmemb)
+
+        space = size * nmemb
+        HEAP_BASE += space
         
-        mem.store(base, 0)
+        if space > PTRDIFF_MAX:
+            regs[mips.MIPS_REG_V0] = 0
+            return regs, mem
+
+        for i in range(nmemb * size):
+            mem.store(base + i, 0) # init
+        
+        alloc_sizes[base] = space
         regs[mips.MIPS_REG_V0] = base
 
         return regs, mem
@@ -85,42 +111,76 @@ class Libc:
 
     # mem free
     @staticmethod
-    def free(regs: Registers, mem: Memory):
+    def free(regs: Registers, mem: Memory, tp: str):
+        global alloc_sizes, free_list
+
         ptr = regs[mips.MIPS_REG_A0]
-        mem._mem.pop(simplify(ptr).as_long(), None)
+
+        if isinstance(ptr, BitVecNumRef):
+            ptr = ptr.as_long()
+        
+        if ptr in free_list:
+            raise RuntimeError("Double free occurred")
+
+        if isinstance(ptr, int):
+            size = alloc_sizes.pop(ptr, None)
+
+            if size is None:
+                raise("Double free occurred")
+            else:
+                free_list.append(ptr)
+            
         return regs, mem
 
     # misc mem instr
     @staticmethod
     def memcpy(regs: Registers, mem: Memory):
+        # need to impl lhu, sh to test this.
         dst = regs[mips.MIPS_REG_A0]
         src = regs[mips.MIPS_REG_A1]
         n = regs[mips.MIPS_REG_A2]
 
-        new_mem = mem
-        for i in range_unroll(n):
-            byte = Select(mem, src + i)
-            new_mem = Store(new_mem, dst + i, byte)
+        if isinstance(n, BitVecNumRef):
+            n = n.as_long()
+        elif not isinstance(n, int):
+            raise TypeError(f"type {type(n)} not supported for memcpy size")
+        
+        for i in range(n):
+            byte = mem.load(src + i)
+            mem.store(dst + i, byte)
+        
+        regs[mips.MIPS_REG_V0] = dst
 
-        new_regs = regs.copy()
-        new_regs[mips.MIPS_REG_V0] = dst
-
-        return new_regs, new_mem
+        return regs, mem
 
     @staticmethod
-    def memset(regs: Registers, mem: Memory):
+    def memset(regs: Registers, mem: Memory, tp:str):
         s = regs[mips.MIPS_REG_A0]
         c = regs[mips.MIPS_REG_A1]
         n = regs[mips.MIPS_REG_A2]
 
-        new_mem = mem
-        for i in range_unroll(n):
-            new_mem = Store(new_mem, s + i, c)
 
-        new_regs = regs.copy()
-        new_regs[mips.MIPS_REG_V0] = s
+        if isinstance(n, int):
+            pass
+        elif isinstance(n, BitVecNumRef):
+            n = n.as_long()
+        else:
+            raise TypeError(f"type {type(n)} not supported for memset size")
+        
+        if isinstance(c, int):
+            c = c & 0xFF
+        elif isinstance(c, BitVecNumRef):
+            c = simplify(c & 0xFF)
+        else:
+            raise TypeError(f"type {type(n)} not supported for memset char")
 
-        return new_regs, new_mem
+        for i in range(n):
+            #mem.store(s + i, c)
+            pass
+
+        regs[mips.MIPS_REG_V0] = s
+
+        return regs, mem
 
     @staticmethod
     def memmove():
@@ -131,15 +191,6 @@ class Libc:
     @staticmethod
     def strlen(regs: Registers, mem: Memory):
         pass
-        """
-        s = regs[mips.MIPS_REG_A0]
-        
-        new_regs = regs.copy()
-        new_regs[mips.MIPS_REG_V0] = 
-        # 언롤링하고 대충잘하면됨ㅋㅋ
-        
-        return new_regs, mem
-        """
 
     @staticmethod
     def strnlen():
@@ -291,7 +342,7 @@ class Libc:
         pass
 
     @staticmethod
-    def puts(regs: Registers, mem: Memory):
+    def puts(regs: Registers, mem: Memory, type: str):
         s = b""
         index = regs[mips.MIPS_REG_A0]
         while True:
@@ -334,8 +385,9 @@ class Libc:
 
     # process controls
     @staticmethod
-    def exit(regs: Registers, mem: Memory):
+    def exit(regs: Registers, mem: Memory, tp: str):
         syscall.handle_sys_exit(regs, mem)
+        return regs, mem
 
     @staticmethod
     def abort():

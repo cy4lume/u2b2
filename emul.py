@@ -474,7 +474,7 @@ class Mips32Emulator:
                     self.jump_to(REGS[rs], True)
 
             case _:
-                raise NotImplementedError(f"not yet: {insn}")
+                raise NotImplementedError(f"not yet: {insn} {hex(insn.address)}")
 
     def jump_to(self, address: int, calling=False):
         # delay slot execute
