@@ -37,6 +37,10 @@ MAGIC_RETURN = 0x42424242
 STACK_TOP = 0x7fff0000
 STACK_SIZE = PAGE_SIZE
 
+MAX_ARGC = 32
+MAX_ARG_LEN = 1024
+MAGIC_ARG = 0x42000000
+
 EXCLUDE_FUNCS = ('__libc_csu_fini', '__libc_csu_init')
 
 
@@ -190,6 +194,9 @@ class Mips32Emulator:
             if memsz > filesz:
                 uc.mem_write(
                     vaddr + filesz, b"\x00" * (memsz - filesz))
+            
+            for arg_i in range(MAX_ARGC):
+                memory.store(STACK_TOP - 4 * (MAX_ARGC - arg_i), MAGIC_ARG + MAX_ARG_LEN * arg_i)
 
         return (self.elf.header["e_entry"], memory)
 
@@ -484,7 +491,7 @@ class Mips32Emulator:
             return False
 
         if self.type == "trace":
-            raise ValueError("symbol while tracing")
+            raise ValueError(f"symbol while tracing: {term}")
 
         terms, conditions = self.terms, self.conditions
 
@@ -539,9 +546,9 @@ class Mips32Emulator:
 
             self.regs = Registers()
             self.memory = deepcopy(self.memory_init)
-            self.regs[mips.MIPS_REG_SP] = STACK_TOP - 4
+            self.regs[mips.MIPS_REG_SP] = STACK_TOP - 4 * MAX_ARGC
 
-            uc.reg_write(UC_MIPS_REG_SP, STACK_TOP - 4)
+            uc.reg_write(UC_MIPS_REG_SP, STACK_TOP - 4 * MAX_ARGC)
             uc.reg_write(UC_MIPS_REG_PC, func_addr_start)
             try:
                 uc.emu_start(func_addr_start, 0)
@@ -574,11 +581,12 @@ class Mips32Emulator:
         self.memory = deepcopy(self.memory_init)
         for addr, val in mem[0].items():
             self.memory.store(addr, val)
-        for addr in range(align_down(STACK_TOP - STACK_SIZE), align_down(STACK_TOP), 4):
+
+        for addr in range(align_down(STACK_TOP - STACK_SIZE), STACK_TOP - 4 * MAX_ARGC, 4):
             self.memory.store(addr, mem[1])
 
-        self.regs[mips.MIPS_REG_SP] = STACK_TOP - 4
-        uc.reg_write(UC_MIPS_REG_SP, STACK_TOP - 4)
+        self.regs[mips.MIPS_REG_SP] = STACK_TOP - 4 * MAX_ARGC
+        uc.reg_write(UC_MIPS_REG_SP, STACK_TOP - 4 * MAX_ARGC)
         uc.reg_write(UC_MIPS_REG_PC, func_addr_start)
         try:
             uc.emu_start(func_addr_start, 0)
@@ -591,6 +599,7 @@ class Mips32Emulator:
         # TODO: args, coverage, deadcode
 
         for model in models:
+            print("Running with Model:", model)
             regs = list(Registers.evaluate(model))
             mem = extract_array_store(model, Memory.evaluate(model))
             self.run_with_val(func_addr_start, regs, mem)
