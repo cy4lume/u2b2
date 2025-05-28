@@ -314,7 +314,7 @@ class Mips32Emulator:
                 elif isinstance(pc, z3.BitVecNumRef):
                     self.jump_to(pc.as_long())
                 else:
-                    raise ValueError("not supported")
+                    raise ValueError(f"{type(pc)} not supported")
 
             case mips.MIPS_INS_SYSCALL:
                 syscall_num = REGS[mips.MIPS_REG_V0]
@@ -465,8 +465,8 @@ class Mips32Emulator:
                         func_name = self.global_table.get(target_address)
                         func = getattr(
                             libc, func_name)
-
-                        func(REGS, MEMORY)
+                        
+                        func(REGS, MEMORY, self.type)
 
                         self.jump_to(REGS[mips.MIPS_REG_RA],
                                      False)  # is correct?
@@ -649,11 +649,14 @@ class Mips32Emulator:
             print(f"  Coverage: {cov:.1f}% ({size-dead_count}/{size} instr.)")
             print(f"  Dead instructions:")
             if dead_count:
-                for addr in f['dead']:
+                for idx, addr in enumerate(f['dead']):
                     insn_bytes = uc.mem_read(addr, 4)
                     for insn in md.disasm(insn_bytes, addr):
                         print(
                             f"    0x{addr:08x} {insn.mnemonic} {insn.op_str}")
+                    if idx + 1 < len(f['dead']):
+                        if f['dead'][idx + 1] - addr > 4:
+                            print("    =====================================")
                 if self.debug:
                     print(f"  Dead line Number:")
                     lineno = []
