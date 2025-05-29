@@ -153,7 +153,6 @@ class Libc:
 
     @staticmethod
     def strncmp(regs: Registers, mem: Memory):
-        # TODO
         str1 = regs[mips.MIPS_REG_A0]
         str2 = regs[mips.MIPS_REG_A1]
 
@@ -165,19 +164,24 @@ class Libc:
         else:
             raise ValueError(f"strncmp n={n} not yet supported")
         
-        assert n % 4 == 0, "sorry" # todo...
-        
         conds = []
         for i in range(n // 4):
             c1 = mem.load(str1 + 4 * i)
             c2 = mem.load(str2 + 4 * i)
             conds.append(z3.If(c1 < c2, -1, z3.If(c1 > c2, 1, 0)))
 
+        if n % 4 != 0:
+            c1 = mem.load(str1 + (n - (n % 4)))
+            c2 = mem.load(str2 + (n - (n % 4)))
+
+            c1 = z3.Extract(31, 32 - 8 * (n % 4), c1)
+            c2 = z3.Extract(31, 32 - 8 * (n % 4), c2)
+            conds.append(z3.If(c1 < c2, -1, z3.If(c1 > c2, 1, 0)))
+
         acc = 0
         for cond in reversed(conds):
             acc = z3.simplify(z3.If(cond != 0, cond, acc))
 
-        # regs[mips.MIPS_REG_V0] = z3.Or(-1 ,0, 1)
         regs[mips.MIPS_REG_V0] = acc
 
         return regs, mem
@@ -304,7 +308,7 @@ class Libc:
                 s += f"[[ z3: {data} ]]".encode()
                 break
 
-            data = int.to_bytes(data, 4, "little")
+            data = int.to_bytes(data, 4, "big")
             if b"\x00" in data:
                 s += data.split(b"\x00")[0]
                 break

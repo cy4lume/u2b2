@@ -190,7 +190,7 @@ class Mips32Emulator:
                 seg = data[offset:offset+4]
                 if len(seg) == 0:
                     seg = b"\x00" * 4
-                memory.store(addr, int.from_bytes(seg, "little"))
+                memory.store(addr, int.from_bytes(seg, "big"))
 
             uc.mem_write(vaddr, data)
             if memsz > filesz:
@@ -589,14 +589,14 @@ class Mips32Emulator:
                 self.args.append(value)
 
         self.memory = deepcopy(self.memory_init)
-        for addr, val in mem[0].items():
-            self.memory.store(addr, val)
-
         for addr in range(align_down(STACK_TOP - STACK_SIZE), STACK_TOP - 4 * MAX_ARGC, 4):
             self.memory.store(addr, mem[1])
 
         for addr in range(MAGIC_ARG, MAGIC_ARG + MAX_ARGC * MAX_ARG_LEN, 4):
             self.memory.store(addr, mem[1])
+
+        for addr, val in mem[0].items():
+            self.memory.store(addr, val)
 
         self.regs[mips.MIPS_REG_SP] = STACK_TOP - 4 * MAX_ARGC
         uc.reg_write(UC_MIPS_REG_SP, STACK_TOP - 4 * MAX_ARGC)
