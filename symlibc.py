@@ -134,7 +134,7 @@ class Libc:
 
     # misc mem instr
     @staticmethod
-    def memcpy(regs: Registers, mem: Memory):
+    def memcpy(regs: Registers, mem: Memory, tp: str):
         # need to impl lhu, sh to test this.
         dst = regs[mips.MIPS_REG_A0]
         src = regs[mips.MIPS_REG_A1]
@@ -189,7 +189,7 @@ class Libc:
     # str operations
 
     @staticmethod
-    def strlen(regs: Registers, mem: Memory):
+    def strlen(regs: Registers, mem: Memory, tp: str):
         pass
 
     @staticmethod
@@ -198,12 +198,12 @@ class Libc:
         pass
 
     @staticmethod
-    def strcmp(regs: Registers, mem: Memory):
+    def strcmp(regs: Registers, mem: Memory, tp: str):
         # TODO
         pass
 
     @staticmethod
-    def strncmp(regs: Registers, mem: Memory):
+    def strncmp(regs: Registers, mem: Memory, tp: str):
         str1 = regs[mips.MIPS_REG_A0]
         str2 = regs[mips.MIPS_REG_A1]
 
@@ -254,7 +254,7 @@ class Libc:
         pass
 
     @staticmethod
-    def strcpy(regs: Registers, mem: Memory):
+    def strcpy(regs: Registers, mem: Memory, tp: str):
         dst = regs[mips.MIPS_REG_A0]
         src = regs[mips.MIPS_REG_A1]
         pass
@@ -284,7 +284,7 @@ class Libc:
         pass
 
     @staticmethod
-    def read(regs: Registers, mem: Memory):
+    def read(regs: Registers, mem: Memory, tp: str):
         # TODO
         pass
 
