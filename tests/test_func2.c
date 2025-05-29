@@ -7,7 +7,7 @@ int main(int argc, char **argv, char **envp) {
     return -1;
   }
   
-  if (strncmp(argv[1], "Hello", 4) == 0) {
+  if (strncmp(argv[1], "Hello", 5) == 0) {
     puts("Goodbye!");
     return 0;
   }
