@@ -34,6 +34,21 @@ def range_unroll(n, max_unroll=256):
     else:
         return list(range(max_unroll))
 
+def get_byte_from_address(mem: Memory, addr: z3.BitVecRef) -> z3.BitVecRef:
+    if addr.size() != 32:
+        raise ValueError("_get_byte_from_address expects a 32-bit address BitVec.")
+    w_addr = addr & ~z3.BitVecVal(3, 32)
+    b_off = addr & z3.BitVecVal(3, 32)
+    w_val = mem.load(w_addr)
+    b0 = z3.Extract(31, 24, w_val)
+    b1 = z3.Extract(23, 16, w_val)
+    b2 = z3.Extract(15, 8, w_val)
+    b3 = z3.Extract(7, 0, w_val)
+    sel_byte = z3.simplify(
+        z3.If(b_off == z3.BitVecVal(0, 32), b0,
+        z3.If(b_off == z3.BitVecVal(1, 32), b1,
+        z3.If(b_off == z3.BitVecVal(2, 32), b2, b3))))
+    return sel_byte
 
 class Libc:
 # mem allocations
@@ -372,8 +387,175 @@ class Libc:
         return regs, mem
 
     @staticmethod
-    def printf():
-        pass
+    def printf(regs: Registers, mem: Memory, tp: str):
+        FORMAT_STR_MAX_LEN = 256
+        MAX_S_LEN = 128
+
+        fmt_ptr = regs[mips.MIPS_REG_A0]
+        
+        arg_regs = [mips.MIPS_REG_A1, mips.MIPS_REG_A2, mips.MIPS_REG_A3]
+        current_arg_idx = 0
+        stack_arg_offset = 0
+
+        output_parts = []
+        char_count = z3.BitVecVal(0, 32)
+        fmt_concrete_str = ""
+        can_proceed = True
+        concrete_fmt_addr = None
+
+        if isinstance(fmt_ptr, z3.BitVecNumRef):
+            concrete_fmt_addr = fmt_ptr.as_long()
+        elif isinstance(fmt_ptr, int):
+            concrete_fmt_addr = fmt_ptr
+        else: # Symbolic fmt_ptr
+            if tp == "run":
+                regs[mips.MIPS_REG_V0] = -1
+                return regs, mem
+            regs[mips.MIPS_REG_V0] = -1
+            return regs, mem
+
+        if concrete_fmt_addr == 0:
+            regs[mips.MIPS_REG_V0] = -1
+            return regs, mem
+
+        try:
+            for i in range(FORMAT_STR_MAX_LEN):
+                current_char_address_bv = z3.BitVecVal(concrete_fmt_addr + i, 32)
+                char_code_bv = get_byte_from_address(mem, current_char_address_bv) 
+                
+                if isinstance(char_code_bv, z3.BitVecNumRef):
+                    c_val = char_code_bv.as_long()
+                    if c_val == 0:
+                        break
+                    fmt_concrete_str += chr(c_val)
+                else:
+                    can_proceed = False
+                    break
+
+            if i == FORMAT_STR_MAX_LEN -1:
+                if not isinstance(char_code_bv, z3.BitVecNumRef) or char_code_bv.as_long() != 0:
+                    can_proceed = False
+        except Exception as e:
+            print(f"Error reading format string: {e}")
+            regs[mips.MIPS_REG_V0] = -1
+            return regs, mem
+
+        if not can_proceed and not fmt_concrete_str:
+            regs[mips.MIPS_REG_V0] = -1
+            return regs, mem
+
+        fmt_idx = 0
+        def get_arg():
+            nonlocal current_arg_idx, stack_arg_offset
+            if current_arg_idx < len(arg_regs):
+                arg_val = regs[arg_regs[current_arg_idx]]
+                current_arg_idx += 1
+                return arg_val
+            else:
+                arg_addr = regs[mips.MIPS_REG_SP] + stack_arg_offset
+                stack_arg_offset += 4
+                return mem.load(arg_addr)
+
+        while fmt_idx < len(fmt_concrete_str):
+            char = fmt_concrete_str[fmt_idx]
+            if char == '%':
+                fmt_idx += 1
+                if fmt_idx >= len(fmt_concrete_str):
+                    output_parts.append('%')
+                    char_count = char_count + 1
+                    break
+                
+                specifier = fmt_concrete_str[fmt_idx]
+
+                if specifier == '%':
+                    output_parts.append('%')
+                    char_count = char_count + 1
+                elif specifier in ('d', 'i', 'u', 'x', 'X', 'o', 'p', 'c'):
+                    try:
+                        arg = get_arg()
+                    except IndexError:
+                        can_proceed = False; break 
+
+                    if isinstance(arg, z3.BitVecNumRef):
+                        val = arg.as_long()
+                        s = ""
+                        if specifier == 'd' or specifier == 'i': s = str(val) 
+                        elif specifier == 'u': s = str(val & 0xFFFFFFFF) 
+                        elif specifier == 'x': s = hex(val & 0xFFFFFFFF)[2:]
+                        elif specifier == 'X': s = hex(val & 0xFFFFFFFF)[2:].upper()
+                        elif specifier == 'o': s = oct(val & 0xFFFFFFFF)[2:]
+                        elif specifier == 'p': s = hex(val & 0xFFFFFFFF) if val != 0 else "(nil)"
+                        elif specifier == 'c': s = chr(val & 0xFF)
+                        output_parts.append(s)
+                        char_count = char_count + len(s)
+                    else:
+                        estimated_len = 0
+                        if specifier == 'c': estimated_len = 1
+                        elif specifier == 'p': estimated_len = 10
+                        else: estimated_len = 10
+                        char_count = char_count + estimated_len
+                elif specifier == 's':
+                    try:
+                        str_ptr = get_arg()
+                    except IndexError:
+                        can_proceed = False; break
+
+                    concrete_str_ptr_addr = None
+                    is_definitely_null_str = False
+
+                    if isinstance(str_ptr, z3.BitVecNumRef):
+                        concrete_str_ptr_addr = str_ptr.as_long()
+                        if concrete_str_ptr_addr == 0: is_definitely_null_str = True
+                    elif isinstance(str_ptr, int):
+                        concrete_str_ptr_addr = str_ptr
+                        if concrete_str_ptr_addr == 0: is_definitely_null_str = True
+
+                    if is_definitely_null_str:
+                        output_parts.append("(null)")
+                        char_count = char_count + 6
+                    elif concrete_str_ptr_addr is not None:
+                        s_chars_list = []
+                        s_len_val = 0
+                        try:
+                            for k_s in range(MAX_S_LEN):
+                                s_char_bv = Libc.get_byte_from_address(mem, concrete_str_ptr_addr + k_s)
+                                if isinstance(s_char_bv, z3.BitVecNumRef):
+                                    s_c_val = s_char_bv.as_long()
+                                    if s_c_val == 0: break
+                                    s_chars_list.append(chr(s_c_val))
+                                    s_len_val += 1
+                                else:
+                                    break 
+                        except Exception:
+                            s_len_val = 0
+                            can_proceed = False; break
+                        
+                        output_parts.append("".join(s_chars_list))
+                        char_count = char_count + s_len_val
+                    else:
+                        char_count = char_count + 0
+                else:
+                    output_parts.append('%')
+                    char_count = char_count + 1
+                    if fmt_idx < len(fmt_concrete_str):
+                        output_parts.append(specifier)
+                        char_count = char_count + 1
+            else:
+                output_parts.append(char)
+                char_count = char_count + 1
+            fmt_idx += 1
+            if not can_proceed: break
+
+        if not can_proceed and not output_parts:
+             if isinstance(regs[mips.MIPS_REG_V0], z3.BitVecRef) and regs[mips.MIPS_REG_V0].as_long() != -1 :
+                regs[mips.MIPS_REG_V0] = -1
+        else:
+            final_print_str = "".join(output_parts)
+            if tp == "run" or tp == "trace":
+                if final_print_str:
+                    print("printf: ",final_print_str)
+            regs[mips.MIPS_REG_V0] = z3.simplify(char_count)
+        return regs, mem
 
     @staticmethod
     def fprintf():
