@@ -277,15 +277,57 @@ class Mips32Emulator:
                 rd, rs, rt = operands
                 REGS[rd] = REGS[rs] | REGS[rt]
 
+            case mips.MIPS_INS_XOR:
+                rd, rs, rt = operands
+                REGS[rd] = REGS[rs] ^ REGS[rt]
+
             case mips.MIPS_INS_LW:
                 rd = operands[0]
                 pc, rs = operands[1]
                 REGS[rd] = MEMORY.load(REGS[rs] + pc)
 
+            case mips.MIPS_INS_LB | mips.MIPS_INS_LBU:
+                rd = operands[0]
+                pc, rs = operands[1]
+                addr = REGS[rs] + pc
+                addr_round = addr & z3.BitVecVal(~0b11, 32)
+                if z3.is_expr(addr_round):
+                    addr_round = z3.simplify(addr_round)
+                offset = addr & 0b11
+                if z3.is_expr(offset):
+                    offset = z3.simplify(offset)
+                
+                hi = 31 - 8 * offset
+                lo = 24 - 8 * offset
+                if z3.is_expr(hi):
+                    hi = z3.simplify(hi)
+                    hi = hi.as_long()
+                if z3.is_expr(lo):
+                    lo = z3.simplify(lo)
+                    lo = lo.as_long()
+                
+                REGS[rd] = z3.simplify(z3.SignExt(24, z3.Extract(hi, lo, MEMORY.load(addr_round))))
+
             case mips.MIPS_INS_SW:
                 rd = operands[0]
                 pc, rs = operands[1]
                 MEMORY.store(REGS[rs] + pc, REGS[rd])
+
+            case mips.MIPS_INS_SB:
+                rd = operands[0]
+                pc, rs = operands[1]
+                addr = REGS[rs] + pc
+                addr_round = addr & ~0b11
+                offset = addr & 0b11
+
+                value = MEMORY.load(addr_round)
+                hi = 31 - 8 * offset
+                lo = 24 - 8 * offset
+                width = hi - lo + 1
+                mask = ~(((1 << width) - 1) << lo)
+                shift = (REGS[rd] & 0xFF) << lo
+
+                MEMORY.store(addr_round, (value & z3.BitVecVal(mask, 32)) | shift)
 
             case mips.MIPS_INS_MFHI:
                 rd = operands[0]
@@ -302,6 +344,13 @@ class Mips32Emulator:
             case mips.MIPS_INS_SLT:
                 rd, rs, rt = operands
                 if self.bool_proxy(REGS[rs] < REGS[rt]):
+                    REGS[rd] = 1
+                else:
+                    REGS[rd] = 0
+
+            case mips.MIPS_INS_SLTU:
+                rd, rs, rt = operands
+                if self.bool_proxy(z3.ULT(REGS[rs], REGS[rt])):
                     REGS[rd] = 1
                 else:
                     REGS[rd] = 0
@@ -383,7 +432,10 @@ class Mips32Emulator:
 
             case mips.MIPS_INS_SRL:
                 rd, rs, shamt = operands
-                REGS[rd] = z3.LShR(REGS[rs], shamt)
+                val = REGS[rs]
+                if not z3.is_expr(val):
+                    val = z3.BitVecVal(val, 32)
+                REGS[rd] = z3.LShR(val, shamt)
 
             case mips.MIPS_INS_ADDI:
                 rd, rs, imm = operands
