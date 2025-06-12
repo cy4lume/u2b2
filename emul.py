@@ -325,6 +325,8 @@ class Mips32Emulator:
                 lo = 24 - 8 * offset
                 width = hi - lo + 1
                 mask = ~(((1 << width) - 1) << lo)
+                if z3.is_expr(mask):
+                    mask = z3.simplify(mask)
                 shift = (REGS[rd] & 0xFF) << lo
 
                 MEMORY.store(addr_round, (value & z3.BitVecVal(mask, 32)) | shift)
@@ -461,6 +463,13 @@ class Mips32Emulator:
             case mips.MIPS_INS_SLTI:
                 rd, rs, imm = operands
                 if self.bool_proxy(REGS[rs] < imm):
+                    REGS[rd] = 1
+                else:
+                    REGS[rd] = 0
+
+            case mips.MIPS_INS_SLTIU:
+                rd, rs, imm = operands
+                if self.bool_proxy(z3.ULT(REGS[rs], imm)):
                     REGS[rd] = 1
                 else:
                     REGS[rd] = 0
