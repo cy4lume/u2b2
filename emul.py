@@ -281,12 +281,60 @@ class Mips32Emulator:
                 rd, rs, rt = operands
                 REGS[rd] = REGS[rs] ^ REGS[rt]
 
+            case mips.MIPS_INS_NOR:
+                rd, rs, rt = operands
+                REGS[rd] = ~(REGS[rs] | REGS[rt])
+
             case mips.MIPS_INS_LW:
                 rd = operands[0]
                 pc, rs = operands[1]
                 REGS[rd] = MEMORY.load(REGS[rs] + pc)
 
-            case mips.MIPS_INS_LB | mips.MIPS_INS_LBU:
+            case mips.MIPS_INS_LH:
+                rd = operands[0]
+                pc, rs = operands[1]
+                addr = REGS[rs] + pc
+                addr_round = addr & z3.BitVecVal(~0b11, 32)
+                if z3.is_expr(addr_round):
+                    addr_round = z3.simplify(addr_round)
+                offset = addr & 0b11
+                if z3.is_expr(offset):
+                    offset = z3.simplify(offset)
+                
+                hi = 31 - 8 * offset
+                lo = 16 - 8 * offset
+                if z3.is_expr(hi):
+                    hi = z3.simplify(hi)
+                    hi = hi.as_long()
+                if z3.is_expr(lo):
+                    lo = z3.simplify(lo)
+                    lo = lo.as_long()
+                
+                REGS[rd] = z3.simplify(z3.SignExt(16, z3.Extract(hi, lo, MEMORY.load(addr_round))))
+            
+            case mips.MIPS_INS_LHU:
+                rd = operands[0]
+                pc, rs = operands[1]
+                addr = REGS[rs] + pc
+                addr_round = addr & z3.BitVecVal(~0b11, 32)
+                if z3.is_expr(addr_round):
+                    addr_round = z3.simplify(addr_round)
+                offset = addr & 0b11
+                if z3.is_expr(offset):
+                    offset = z3.simplify(offset)
+                
+                hi = 31 - 8 * offset
+                lo = 16 - 8 * offset
+                if z3.is_expr(hi):
+                    hi = z3.simplify(hi)
+                    hi = hi.as_long()
+                if z3.is_expr(lo):
+                    lo = z3.simplify(lo)
+                    lo = lo.as_long()
+                
+                REGS[rd] = z3.simplify(z3.ZeroExt(16, z3.Extract(hi, lo, MEMORY.load(addr_round))))
+
+            case mips.MIPS_INS_LB:
                 rd = operands[0]
                 pc, rs = operands[1]
                 addr = REGS[rs] + pc
@@ -308,10 +356,49 @@ class Mips32Emulator:
                 
                 REGS[rd] = z3.simplify(z3.SignExt(24, z3.Extract(hi, lo, MEMORY.load(addr_round))))
 
+            case mips.MIPS_INS_LBU:
+                rd = operands[0]
+                pc, rs = operands[1]
+                addr = REGS[rs] + pc
+                addr_round = addr & z3.BitVecVal(~0b11, 32)
+                if z3.is_expr(addr_round):
+                    addr_round = z3.simplify(addr_round)
+                offset = addr & 0b11
+                if z3.is_expr(offset):
+                    offset = z3.simplify(offset)
+                
+                hi = 31 - 8 * offset
+                lo = 24 - 8 * offset
+                if z3.is_expr(hi):
+                    hi = z3.simplify(hi)
+                    hi = hi.as_long()
+                if z3.is_expr(lo):
+                    lo = z3.simplify(lo)
+                    lo = lo.as_long()
+                
+                REGS[rd] = z3.simplify(z3.ZeroExt(24, z3.Extract(hi, lo, MEMORY.load(addr_round))))
+
             case mips.MIPS_INS_SW:
                 rd = operands[0]
                 pc, rs = operands[1]
                 MEMORY.store(REGS[rs] + pc, REGS[rd])
+
+            case mips.MIPS_INS_SH:
+                rd = operands[0]
+                pc, rs = operands[1]
+                addr = REGS[rs] + pc
+                addr_round = addr & ~0b11
+                offset = addr & 0b11
+
+                value = MEMORY.load(addr_round)
+                hi = 31 - 8 * offset
+                lo = 16 - 8 * offset
+                mask = ~(((1 << 16) - 1) << lo)
+                if z3.is_expr(mask):
+                    mask = z3.simplify(mask)
+                shift = (REGS[rd] & 0xFFFF) << lo
+
+                MEMORY.store(addr_round, (value & z3.BitVecVal(mask, 32)) | shift)
 
             case mips.MIPS_INS_SB:
                 rd = operands[0]
@@ -323,8 +410,7 @@ class Mips32Emulator:
                 value = MEMORY.load(addr_round)
                 hi = 31 - 8 * offset
                 lo = 24 - 8 * offset
-                width = hi - lo + 1
-                mask = ~(((1 << width) - 1) << lo)
+                mask = ~(((1 << 8) - 1) << lo)
                 if z3.is_expr(mask):
                     mask = z3.simplify(mask)
                 shift = (REGS[rd] & 0xFF) << lo
@@ -432,12 +518,23 @@ class Mips32Emulator:
                 rd, rs, shamt = operands
                 REGS[rd] = REGS[rs] << shamt
 
+            case mips.MIPS_INS_SLLV:
+                rd, rs, rt = operands
+                REGS[rd] = REGS[rs] << REGS[rt]
+
             case mips.MIPS_INS_SRL:
                 rd, rs, shamt = operands
                 val = REGS[rs]
                 if not z3.is_expr(val):
                     val = z3.BitVecVal(val, 32)
                 REGS[rd] = z3.LShR(val, shamt)
+
+            case mips.MIPS_INS_SRLV:
+                rd, rs, rt = operands
+                val = REGS[rs]
+                if not z3.is_expr(val):
+                    val = z3.BitVecVal(val, 32)
+                REGS[rd] = z3.LShR(val, REGS[rt])
 
             case mips.MIPS_INS_ADDI:
                 rd, rs, imm = operands
@@ -710,22 +807,25 @@ class Mips32Emulator:
             print(f"  Coverage: {cov:.1f}% ({size-dead_count}/{size} instr.)")
             print(f"  Dead instructions:")
             if dead_count:
-                for idx, addr in enumerate(f['dead']):
-                    insn_bytes = uc.mem_read(addr, 4)
-                    for insn in md.disasm(insn_bytes, addr):
-                        print(
-                            f"    0x{addr:08x} {insn.mnemonic} {insn.op_str}")
-                    if idx + 1 < len(f['dead']):
-                        if f['dead'][idx + 1] - addr > 4:
-                            print("    =====================================")
-                if self.debug:
-                    print(f"  Dead line Number:")
-                    lineno = []
-                    for addr in f['dead']:
-                        lineno.append(self.get_lineno_by_address(addr))
-                    lineno = list(set(lineno))  # To delete duplicated element
-                    if lineno:
-                        print("  ", ", ".join([str(i) for i in lineno]))
+                if f['executed']:
+                    for idx, addr in enumerate(f['dead']):
+                        insn_bytes = uc.mem_read(addr, 4)
+                        for insn in md.disasm(insn_bytes, addr):
+                            print(
+                                f"    0x{addr:08x} {insn.mnemonic} {insn.op_str}")
+                        if idx + 1 < len(f['dead']):
+                            if f['dead'][idx + 1] - addr > 4:
+                                print("    =====================================")
+                    if self.debug:
+                        print(f"  Dead line Number:")
+                        lineno = []
+                        for addr in f['dead']:
+                            lineno.append(self.get_lineno_by_address(addr))
+                        lineno = list(set(lineno))  # To delete duplicated element
+                        if lineno:
+                            print("  ", ", ".join([str(i) for i in lineno]))
+                else:
+                    print("    this function has never been executed")
             else:
                 print("    No dead instructions")
 
