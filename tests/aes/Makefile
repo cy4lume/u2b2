@@ -5,8 +5,8 @@ CC           = mips-linux-gnu-gcc
 LD           = mips-linux-gnu-gcc
 AR           = mips-linux-gnu-ar
 ARFLAGS      = rcs
-CFLAGS       = -Wall -Os -c -fprofile-arcs -ftest-coverage -g
-LDFLAGS      = -Wall -Os -fprofile-arcs -ftest-coverage -g -Wl,-Map,test.map
+CFLAGS       = -Wall -c -fprofile-arcs -ftest-coverage -g
+LDFLAGS      = -Wall -fprofile-arcs -ftest-coverage -g -Wl,-Map,test.map
 ifdef AES192
 CFLAGS += -DAES192=1
 endif
