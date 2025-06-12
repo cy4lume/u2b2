@@ -1,0 +1,25 @@
+        -:    0:Source:test.c
+        -:    0:Graph:./test.elf-test.gcno
+        -:    0:Data:./test.elf-test.gcda
+        -:    0:Runs:1
+        -:    1:#include <stdio.h>
+        -:    2:
+        1:    3:int main(void) {
+        -:    4:    int x;
+        -:    5:
+        1:    6:    if (x > 3) {
+        1:    7:        puts("[x > 3] reachable");
+        1:    8:        if (x == 3) {
+    #####:    9:            puts("[And(x > 3, x == 3)] unreachable");
+        -:   10:        }
+    #####:   11:    } else if (x == 3) {
+    #####:   12:        puts("[x == 3] reachable");
+    #####:   13:        if (x > 3) {
+    #####:   14:            puts("[And(x == 3, x > 3)] unreachable");
+        -:   15:        }
+    #####:   16:    } else if (x < 3) {
+    #####:   17:        puts("[x < 3] reachable");
+        -:   18:    } else {
+    #####:   19:        puts("[else] unreachable");
+        -:   20:    }
+        -:   21:}

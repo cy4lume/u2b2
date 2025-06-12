@@ -1,0 +1,26 @@
+        -:    0:Source:test.c
+        -:    1:#include "tinf.h"
+        -:    2:
+        -:    3:#ifndef ARRAY_SIZE
+        -:    4:#  define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
+        -:    5:#endif
+        -:    6:
+        -:    7:static const unsigned char robuffer[] = { 0 };
+        -:    8:
+        1:    9:int crc32(void)
+        -:   10:{
+        -:   11:	/* Empty buffer, fixed, 6 bits of padding in the second byte set to 1 */
+        -:   12:	static const unsigned char data[] = {
+        -:   13:		0x03, 0xFC
+        -:   14:	};
+        1:   15:	int res = tinf_crc32(data, ARRAY_SIZE(data));
+        1:   16:  if (res == 0xDEFFFF0B) {
+        1:   17:    return 0;
+        -:   18:  }
+        -:   19:
+    #####:   20:	return -1;
+        -:   21:}
+        -:   22:
+        1:   23:int main() {
+        1:   24:  return crc32();
+        -:   25:}

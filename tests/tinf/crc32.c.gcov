@@ -1,0 +1,58 @@
+        -:    0:Source:crc32.c
+        -:    1:/*
+        -:    2: * CRC32 checksum
+        -:    3: *
+        -:    4: * Copyright (c) 1998-2019 Joergen Ibsen
+        -:    5: *
+        -:    6: * This software is provided 'as-is', without any express or implied
+        -:    7: * warranty. In no event will the authors be held liable for any damages
+        -:    8: * arising from the use of this software.
+        -:    9: *
+        -:   10: * Permission is granted to anyone to use this software for any purpose,
+        -:   11: * including commercial applications, and to alter it and redistribute it
+        -:   12: * freely, subject to the following restrictions:
+        -:   13: *
+        -:   14: *   1. The origin of this software must not be misrepresented; you must
+        -:   15: *      not claim that you wrote the original software. If you use this
+        -:   16: *      software in a product, an acknowledgment in the product
+        -:   17: *      documentation would be appreciated but is not required.
+        -:   18: *
+        -:   19: *   2. Altered source versions must be plainly marked as such, and must
+        -:   20: *      not be misrepresented as being the original software.
+        -:   21: *
+        -:   22: *   3. This notice may not be removed or altered from any source
+        -:   23: *      distribution.
+        -:   24: */
+        -:   25:
+        -:   26:/*
+        -:   27: * CRC32 algorithm taken from the zlib source, which is
+        -:   28: * Copyright (C) 1995-1998 Jean-loup Gailly and Mark Adler
+        -:   29: */
+        -:   30:
+        -:   31:#include "tinf.h"
+        -:   32:
+        -:   33:static const unsigned int tinf_crc32tab[16] = {
+        -:   34:	0x00000000, 0x1DB71064, 0x3B6E20C8, 0x26D930AC, 0x76DC4190,
+        -:   35:	0x6B6B51F4, 0x4DB26158, 0x5005713C, 0xEDB88320, 0xF00F9344,
+        -:   36:	0xD6D6A3E8, 0xCB61B38C, 0x9B64C2B0, 0x86D3D2D4, 0xA00AE278,
+        -:   37:	0xBDBDF21C
+        -:   38:};
+        -:   39:
+        1:   40:unsigned int tinf_crc32(const void *data, unsigned int length)
+        -:   41:{
+        1:   42:	const unsigned char *buf = (const unsigned char *) data;
+        1:   43:	unsigned int crc = 0xFFFFFFFF;
+        -:   44:	unsigned int i;
+        -:   45:
+        1:   46:	if (length == 0) {
+    #####:   47:		return 0;
+        -:   48:	}
+        -:   49:
+        3:   50:	for (i = 0; i < length; ++i) {
+        2:   51:		crc ^= buf[i];
+        2:   52:		crc = tinf_crc32tab[crc & 0x0F] ^ (crc >> 4);
+        2:   53:		crc = tinf_crc32tab[crc & 0x0F] ^ (crc >> 4);
+        -:   54:	}
+        -:   55:
+        1:   56:	return crc ^ 0xFFFFFFFF;
+        -:   57:}

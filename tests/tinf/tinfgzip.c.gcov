@@ -1,0 +1,173 @@
+        -:    0:Source:tinfgzip.c
+        -:    1:/*
+        -:    2: * tinfgzip - tiny gzip decompressor
+        -:    3: *
+        -:    4: * Copyright (c) 2003-2019 Joergen Ibsen
+        -:    5: *
+        -:    6: * This software is provided 'as-is', without any express or implied
+        -:    7: * warranty. In no event will the authors be held liable for any damages
+        -:    8: * arising from the use of this software.
+        -:    9: *
+        -:   10: * Permission is granted to anyone to use this software for any purpose,
+        -:   11: * including commercial applications, and to alter it and redistribute it
+        -:   12: * freely, subject to the following restrictions:
+        -:   13: *
+        -:   14: *   1. The origin of this software must not be misrepresented; you must
+        -:   15: *      not claim that you wrote the original software. If you use this
+        -:   16: *      software in a product, an acknowledgment in the product
+        -:   17: *      documentation would be appreciated but is not required.
+        -:   18: *
+        -:   19: *   2. Altered source versions must be plainly marked as such, and must
+        -:   20: *      not be misrepresented as being the original software.
+        -:   21: *
+        -:   22: *   3. This notice may not be removed or altered from any source
+        -:   23: *      distribution.
+        -:   24: */
+        -:   25:
+        -:   26:#include "tinf.h"
+        -:   27:
+        -:   28:typedef enum {
+        -:   29:	FTEXT    = 1,
+        -:   30:	FHCRC    = 2,
+        -:   31:	FEXTRA   = 4,
+        -:   32:	FNAME    = 8,
+        -:   33:	FCOMMENT = 16
+        -:   34:} tinf_gzip_flag;
+        -:   35:
+    #####:   36:static unsigned int read_le16(const unsigned char *p)
+        -:   37:{
+    #####:   38:	return ((unsigned int) p[0])
+    #####:   39:	     | ((unsigned int) p[1] << 8);
+        -:   40:}
+        -:   41:
+    #####:   42:static unsigned int read_le32(const unsigned char *p)
+        -:   43:{
+    #####:   44:	return ((unsigned int) p[0])
+    #####:   45:	     | ((unsigned int) p[1] << 8)
+    #####:   46:	     | ((unsigned int) p[2] << 16)
+    #####:   47:	     | ((unsigned int) p[3] << 24);
+        -:   48:}
+        -:   49:
+    #####:   50:int tinf_gzip_uncompress(void *dest, unsigned int *destLen,
+        -:   51:                         const void *source, unsigned int sourceLen)
+        -:   52:{
+    #####:   53:	const unsigned char *src = (const unsigned char *) source;
+    #####:   54:	unsigned char *dst = (unsigned char *) dest;
+        -:   55:	const unsigned char *start;
+        -:   56:	unsigned int dlen, crc32;
+        -:   57:	int res;
+        -:   58:	unsigned char flg;
+        -:   59:
+        -:   60:	/* -- Check header -- */
+        -:   61:
+        -:   62:	/* Check room for at least 10 byte header and 8 byte trailer */
+    #####:   63:	if (sourceLen < 18) {
+    #####:   64:		return TINF_DATA_ERROR;
+        -:   65:	}
+        -:   66:
+        -:   67:	/* Check id bytes */
+    #####:   68:	if (src[0] != 0x1F || src[1] != 0x8B) {
+    #####:   69:		return TINF_DATA_ERROR;
+        -:   70:	}
+        -:   71:
+        -:   72:	/* Check method is deflate */
+    #####:   73:	if (src[2] != 8) {
+    #####:   74:		return TINF_DATA_ERROR;
+        -:   75:	}
+        -:   76:
+        -:   77:	/* Get flag byte */
+    #####:   78:	flg = src[3];
+        -:   79:
+        -:   80:	/* Check that reserved bits are zero */
+    #####:   81:	if (flg & 0xE0) {
+    #####:   82:		return TINF_DATA_ERROR;
+        -:   83:	}
+        -:   84:
+        -:   85:	/* -- Find start of compressed data -- */
+        -:   86:
+        -:   87:	/* Skip base header of 10 bytes */
+    #####:   88:	start = src + 10;
+        -:   89:
+        -:   90:	/* Skip extra data if present */
+    #####:   91:	if (flg & FEXTRA) {
+    #####:   92:		unsigned int xlen = read_le16(start);
+        -:   93:
+    #####:   94:		if (xlen > sourceLen - 12) {
+    #####:   95:			return TINF_DATA_ERROR;
+        -:   96:		}
+        -:   97:
+    #####:   98:		start += xlen + 2;
+        -:   99:	}
+        -:  100:
+        -:  101:	/* Skip file name if present */
+    #####:  102:	if (flg & FNAME) {
+        -:  103:		do {
+    #####:  104:			if (start - src >= sourceLen) {
+    #####:  105:				return TINF_DATA_ERROR;
+        -:  106:			}
+    #####:  107:		} while (*start++);
+        -:  108:	}
+        -:  109:
+        -:  110:	/* Skip file comment if present */
+    #####:  111:	if (flg & FCOMMENT) {
+        -:  112:		do {
+    #####:  113:			if (start - src >= sourceLen) {
+    #####:  114:				return TINF_DATA_ERROR;
+        -:  115:			}
+    #####:  116:		} while (*start++);
+        -:  117:	}
+        -:  118:
+        -:  119:	/* Check header crc if present */
+    #####:  120:	if (flg & FHCRC) {
+        -:  121:		unsigned int hcrc;
+        -:  122:
+    #####:  123:		if (start - src > sourceLen - 2) {
+    #####:  124:			return TINF_DATA_ERROR;
+        -:  125:		}
+        -:  126:
+    #####:  127:		hcrc = read_le16(start);
+        -:  128:
+    #####:  129:		if (hcrc != (tinf_crc32(src, start - src) & 0x0000FFFF)) {
+    #####:  130:			return TINF_DATA_ERROR;
+        -:  131:		}
+        -:  132:
+    #####:  133:		start += 2;
+        -:  134:	}
+        -:  135:
+        -:  136:	/* -- Get decompressed length -- */
+        -:  137:
+    #####:  138:	dlen = read_le32(&src[sourceLen - 4]);
+        -:  139:
+    #####:  140:	if (dlen > *destLen) {
+    #####:  141:		return TINF_BUF_ERROR;
+        -:  142:	}
+        -:  143:
+        -:  144:	/* -- Get CRC32 checksum of original data -- */
+        -:  145:
+    #####:  146:	crc32 = read_le32(&src[sourceLen - 8]);
+        -:  147:
+        -:  148:	/* -- Decompress data -- */
+        -:  149:
+    #####:  150:	if ((src + sourceLen) - start < 8) {
+    #####:  151:		return TINF_DATA_ERROR;
+        -:  152:	}
+        -:  153:
+    #####:  154:	res = tinf_uncompress(dst, destLen, start,
+    #####:  155:	                      (src + sourceLen) - start - 8);
+        -:  156:
+    #####:  157:	if (res != TINF_OK) {
+    #####:  158:		return TINF_DATA_ERROR;
+        -:  159:	}
+        -:  160:
+    #####:  161:	if (*destLen != dlen) {
+    #####:  162:		return TINF_DATA_ERROR;
+        -:  163:	}
+        -:  164:
+        -:  165:	/* -- Check CRC32 checksum -- */
+        -:  166:
+    #####:  167:	if (crc32 != tinf_crc32(dst, dlen)) {
+    #####:  168:		return TINF_DATA_ERROR;
+        -:  169:	}
+        -:  170:
+    #####:  171:	return TINF_OK;
+        -:  172:}

@@ -1,0 +1,96 @@
+        -:    0:Source:tinfzlib.c
+        -:    1:/*
+        -:    2: * tinfzlib - tiny zlib decompressor
+        -:    3: *
+        -:    4: * Copyright (c) 2003-2019 Joergen Ibsen
+        -:    5: *
+        -:    6: * This software is provided 'as-is', without any express or implied
+        -:    7: * warranty. In no event will the authors be held liable for any damages
+        -:    8: * arising from the use of this software.
+        -:    9: *
+        -:   10: * Permission is granted to anyone to use this software for any purpose,
+        -:   11: * including commercial applications, and to alter it and redistribute it
+        -:   12: * freely, subject to the following restrictions:
+        -:   13: *
+        -:   14: *   1. The origin of this software must not be misrepresented; you must
+        -:   15: *      not claim that you wrote the original software. If you use this
+        -:   16: *      software in a product, an acknowledgment in the product
+        -:   17: *      documentation would be appreciated but is not required.
+        -:   18: *
+        -:   19: *   2. Altered source versions must be plainly marked as such, and must
+        -:   20: *      not be misrepresented as being the original software.
+        -:   21: *
+        -:   22: *   3. This notice may not be removed or altered from any source
+        -:   23: *      distribution.
+        -:   24: */
+        -:   25:
+        -:   26:#include "tinf.h"
+        -:   27:
+    #####:   28:static unsigned int read_be32(const unsigned char *p)
+        -:   29:{
+    #####:   30:	return ((unsigned int) p[0] << 24)
+    #####:   31:	     | ((unsigned int) p[1] << 16)
+    #####:   32:	     | ((unsigned int) p[2] << 8)
+    #####:   33:	     | ((unsigned int) p[3]);
+        -:   34:}
+        -:   35:
+    #####:   36:int tinf_zlib_uncompress(void *dest, unsigned int *destLen,
+        -:   37:                         const void *source, unsigned int sourceLen)
+        -:   38:{
+    #####:   39:	const unsigned char *src = (const unsigned char *) source;
+    #####:   40:	unsigned char *dst = (unsigned char *) dest;
+        -:   41:	unsigned int a32;
+        -:   42:	int res;
+        -:   43:	unsigned char cmf, flg;
+        -:   44:
+        -:   45:	/* -- Check header -- */
+        -:   46:
+        -:   47:	/* Check room for at least 2 byte header and 4 byte trailer */
+    #####:   48:	if (sourceLen < 6) {
+    #####:   49:		return TINF_DATA_ERROR;
+        -:   50:	}
+        -:   51:
+        -:   52:	/* Get header bytes */
+    #####:   53:	cmf = src[0];
+    #####:   54:	flg = src[1];
+        -:   55:
+        -:   56:	/* Check checksum */
+    #####:   57:	if ((256 * cmf + flg) % 31) {
+    #####:   58:		return TINF_DATA_ERROR;
+        -:   59:	}
+        -:   60:
+        -:   61:	/* Check method is deflate */
+    #####:   62:	if ((cmf & 0x0F) != 8) {
+    #####:   63:		return TINF_DATA_ERROR;
+        -:   64:	}
+        -:   65:
+        -:   66:	/* Check window size is valid */
+    #####:   67:	if ((cmf >> 4) > 7) {
+    #####:   68:		return TINF_DATA_ERROR;
+        -:   69:	}
+        -:   70:
+        -:   71:	/* Check there is no preset dictionary */
+    #####:   72:	if (flg & 0x20) {
+    #####:   73:		return TINF_DATA_ERROR;
+        -:   74:	}
+        -:   75:
+        -:   76:	/* -- Get Adler-32 checksum of original data -- */
+        -:   77:
+    #####:   78:	a32 = read_be32(&src[sourceLen - 4]);
+        -:   79:
+        -:   80:	/* -- Decompress data -- */
+        -:   81:
+    #####:   82:	res = tinf_uncompress(dst, destLen, src + 2, sourceLen - 6);
+        -:   83:
+    #####:   84:	if (res != TINF_OK) {
+    #####:   85:		return TINF_DATA_ERROR;
+        -:   86:	}
+        -:   87:
+        -:   88:	/* -- Check Adler-32 checksum -- */
+        -:   89:
+    #####:   90:	if (a32 != tinf_adler32(dst, *destLen)) {
+    #####:   91:		return TINF_DATA_ERROR;
+        -:   92:	}
+        -:   93:
+    #####:   94:	return TINF_OK;
+        -:   95:}
