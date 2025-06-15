@@ -2,6 +2,7 @@ from z3 import *
 import capstone.mips_const as mips
 from state import Memory, Registers
 import syscall
+import time as py_time
 
 HEAP_BASE = 0x10000000
 
@@ -51,6 +52,8 @@ def get_byte_from_address(mem: Memory, addr: z3.BitVecRef) -> z3.BitVecRef:
     return sel_byte
 
 class Libc:
+    _libc_rand_seed = 1
+    _libc_rand_call_count = 0
 # mem allocations
     @staticmethod
     def malloc(regs: Registers, mem: Memory, tp: str):
@@ -580,12 +583,18 @@ class Libc:
         pass
 
     @staticmethod
-    def system():
-        pass
+    def system(regs: Registers, mem: Memory, tp: str):
+        command = regs[mips.MIPS_REG_A0]
+        if isinstance(command, (z3.BitVecNumRef, int)) and (command if isinstance(command, int) else command.as_long()) == 0:
+            regs[mips.MIPS_REG_V0] = 1
+        else:
+            regs[mips.MIPS_REG_V0] = 0
+        return regs, mem
 
     @staticmethod
-    def fork():
-        pass
+    def fork(regs: Registers, mem: Memory, tp: str):
+        regs[mips.MIPS_REG_V0] = 0
+        return regs, mem
 
     @staticmethod
     def execve():
@@ -601,27 +610,86 @@ class Libc:
 
     # time
     @staticmethod
-    def time():
-        pass
+    def time(regs: Registers, mem: Memory, tp: str):
+        sym_time = z3.BitVec(f"time_{int(py_time.time())}", 32)
+        
+        tloc_ptr = regs[mips.MIPS_REG_A0]
+        is_not_null = True
+
+        if isinstance(tloc_ptr, (z3.BitVecNumRef, int)) and (tloc_ptr if isinstance(tloc_ptr, int) else tloc_ptr.as_long()) == 0:
+            is_not_null = False
+        if tp == "run" :
+            if is_not_null:
+                mem.store(tloc_ptr, sym_time)
+        elif tp == "trace" and is_not_null:
+            mem.store(tloc_ptr, int(py_time.time()))
+        regs[mips.MIPS_REG_V0] = sym_time if tp == "run" else int(py_time.time())
+        return regs, mem
 
     @staticmethod
-    def gettimeofday():
-        pass
+    def gettimeofday(regs: Registers, mem: Memory, tp: str):
+        tv_ptr = regs[mips.MIPS_REG_A0]
+        if isinstance(tv_ptr, (z3.BitVecNumRef, int)) and (tv_ptr if isinstance(tv_ptr, int) else tv_ptr.as_long()) == 0:
+            regs[mips.MIPS_REG_V0] = -1 # FAULT
+            return regs, mem
+
+        if tp == "run":
+            sym_tv_sec = z3.BitVec(f"tv_sec_{int(py_time.time())}", 32)
+            sym_tv_usec = z3.BitVec(f"tv_usec_{int(py_time.time())}", 32)
+
+            mem.store(tv_ptr, sym_tv_sec)
+            mem.store(tv_ptr + 4, sym_tv_usec)
+            regs[mips.MIPS_REG_V0] = 0
+        elif tp == "trace":
+            now = py_time.time()
+            sec = int(now)
+            usec = int((now - sec) * 1_000_000)
+            mem.store(tv_ptr, sec)
+            mem.store(tv_ptr + 4, usec)
+            regs[mips.MIPS_REG_V0] = 0
+            
+        return regs, mem
 
     @staticmethod
-    def clock():
-        pass
+    def clock(regs: Registers, mem: Memory, tp: str):
+        if tp == "run":
+            sym_clock = z3.BitVec(f"clock_val_{int(py_time.time())}", 32)
+            regs[mips.MIPS_REG_V0] = sym_clock
+        elif tp == "trace":
+            regs[mips.MIPS_REG_V0] = int(py_time.time() * 1000)
+            
+        return regs, mem
 
     # pseudo-random
     @staticmethod
-    def rand():
-        # TODO
-        pass
+    def rand(regs: Registers, mem: Memory, tp: str):
+        if tp == "run":
+            rand_val = z3.BitVec(f"rand_{Libc._libc_rand_call_count}", 32)
+            Libc._libc_rand_call_count += 1
+            regs[mips.MIPS_REG_V0] = rand_val
+        elif tp == "trace":
+            A = 1103515245
+            C = 12345
+
+            current_seed = Libc._libc_rand_seed
+            if isinstance(current_seed, z3.BitVecNumRef):
+                current_seed = current_seed.as_long()
+            elif not isinstance(current_seed, int):
+                current_seed = 1
+            
+            new_seed = (current_seed * A + C) & 0xFFFFFFFF
+            Libc._libc_rand_seed = new_seed
+            rand_val = (new_seed // 65536) % 32768
+            regs[mips.MIPS_REG_V0] = rand_val
+
+        return regs, mem
 
     @staticmethod
-    def srand():
-        # TODO
-        pass
+    def srand(regs: Registers, mem: Memory, tp: str):
+        seed = regs[mips.MIPS_REG_A0]
+        Libc._libc_rand_seed = seed
+        Libc._libc_rand_call_count = 0
+        return regs, mem
 
     # sorting / search
     @staticmethod
